@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
-import type { Account } from '../types';
-import { updateAccountBalance } from '../services/wallet';
-import { loadAccounts } from '../utils/storage';
-import { ReceiveModal } from './ReceiveModal';
-import { SendModal } from './SendModal';
-import { InheritanceModal } from './InheritanceModal';
-import { MenuBar } from './MenuBar';
-import './Accounts.css';
+import { useEffect, useState } from "react";
+import { updateAccountBalance } from "../services/wallet";
+import type { Account } from "../types";
+import { loadAccounts } from "../utils/storage";
+import "./Accounts.css";
+import { InheritanceModal } from "./InheritanceModal";
+import { MenuBar } from "./MenuBar";
+import { ReceiveModal } from "./ReceiveModal";
+import { SendModal } from "./SendModal";
 
 interface AccountsProps {
   mnemonic: string;
@@ -21,25 +21,31 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
   const [showInheritance, setShowInheritance] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    loadAccountsData();
-  }, []);
-
-  const loadAccountsData = async () => {
+  async function loadAccountsData() {
     setIsLoading(true);
     const loadedAccounts = loadAccounts();
-    
+
     // Update balances for all accounts
     const updatedAccounts = await Promise.all(
-      loadedAccounts.map(account => updateAccountBalance(account))
+      loadedAccounts.map((account) => updateAccountBalance(account)),
     );
-    
+
     setAccounts(updatedAccounts);
     if (updatedAccounts.length > 0) {
       setSelectedAccount(updatedAccounts[0]);
     }
     setIsLoading(false);
-  };
+  }
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      void loadAccountsData();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, []);
 
   const totalBalance = accounts.reduce((sum, acc) => sum + acc.balance, 0);
 
@@ -61,25 +67,30 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
   return (
     <div className="accounts-container">
       <MenuBar mnemonic={mnemonic} onLogout={onLogout} />
-      
+
       <div className="accounts-content">
         {/* Total Balance Card */}
         <div className="balance-card">
           <div className="balance-header">
             <span className="balance-label">Celková balance</span>
-            <button onClick={handleRefresh} className="refresh-btn" title="Obnovit">
+            <button
+              onClick={handleRefresh}
+              className="refresh-btn"
+              title="Obnovit"
+            >
               ↻
             </button>
           </div>
           <div className="balance-amount">
-            {totalBalance.toFixed(8)} <span className="btc-label">BTC</span>
+            {totalBalance.toLocaleString("cs-CZ")}{" "}
+            <span className="btc-label">sats</span>
           </div>
           <div className="balance-testnet">Testnet</div>
         </div>
 
         {/* Action Buttons */}
         <div className="action-buttons">
-          <button 
+          <button
             onClick={() => selectedAccount && setShowReceive(true)}
             className="action-btn receive"
             disabled={!selectedAccount}
@@ -87,7 +98,7 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
             <span className="action-icon">↓</span>
             Přijmout
           </button>
-          <button 
+          <button
             onClick={() => selectedAccount && setShowSend(true)}
             className="action-btn send"
             disabled={!selectedAccount || selectedAccount.balance === 0}
@@ -100,37 +111,47 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
         {/* Accounts List */}
         <div className="accounts-list">
           <h2>Účty</h2>
-          {accounts.map(account => (
+          {accounts.map((account) => (
             <div
               key={account.id}
-              className={`account-item ${selectedAccount?.id === account.id ? 'selected' : ''} ${account.type}`}
+              className={`account-item ${selectedAccount?.id === account.id ? "selected" : ""} ${account.type}`}
               onClick={() => setSelectedAccount(account)}
             >
               <div className="account-info">
                 <div className="account-name">
-                  {account.type === 'inheritance' && <span className="inheritance-icon">🛡️</span>}
+                  {account.type === "inheritance" && (
+                    <span className="inheritance-icon">🛡️</span>
+                  )}
                   {account.name}
                 </div>
                 <div className="account-type">
-                  {account.type === 'inheritance' ? 'Dědický účet' : 'Standardní účet'}
+                  {account.type === "inheritance"
+                    ? "Dědický účet"
+                    : "Standardní účet"}
                 </div>
-                {account.type === 'inheritance' && account.inheritanceStatus && (
-                  <div className="inheritance-status">
-                    {account.inheritanceStatus.canUserSpend && '✓ Můžete utrácet'}
-                    {account.inheritanceStatus.requiresMultisig && '🔒 Multisig vyžadován'}
-                    {!account.inheritanceStatus.canUserSpend && !account.inheritanceStatus.requiresMultisig && account.balance > 0 && '⏳ Čekání na timelock'}
-                  </div>
-                )}
+                {account.type === "inheritance" &&
+                  account.inheritanceStatus && (
+                    <div className="inheritance-status">
+                      {account.inheritanceStatus.canUserSpend &&
+                        "✓ Můžete utrácet"}
+                      {account.inheritanceStatus.requiresMultisig &&
+                        "🔒 Multisig vyžadován"}
+                      {!account.inheritanceStatus.canUserSpend &&
+                        !account.inheritanceStatus.requiresMultisig &&
+                        account.balance > 0 &&
+                        "⏳ Čekání na timelock"}
+                    </div>
+                  )}
               </div>
               <div className="account-balance">
-                {account.balance.toFixed(8)} BTC
+                {account.balance.toLocaleString("cs-CZ")} sats
               </div>
             </div>
           ))}
         </div>
 
         {/* Add Inheritance Account Button */}
-        <button 
+        <button
           onClick={() => setShowInheritance(true)}
           className="add-inheritance-btn"
         >
@@ -141,7 +162,7 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
 
       {/* Modals */}
       {showReceive && selectedAccount && (
-        <ReceiveModal 
+        <ReceiveModal
           account={selectedAccount}
           mnemonic={mnemonic}
           onClose={() => setShowReceive(false)}
@@ -149,7 +170,7 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
       )}
 
       {showSend && selectedAccount && (
-        <SendModal 
+        <SendModal
           account={selectedAccount}
           mnemonic={mnemonic}
           onClose={() => setShowSend(false)}
@@ -158,7 +179,7 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
       )}
 
       {showInheritance && (
-        <InheritanceModal 
+        <InheritanceModal
           mnemonic={mnemonic}
           onClose={() => {
             setShowInheritance(false);

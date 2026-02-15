@@ -6,8 +6,8 @@ export interface Wallet {
 export interface Account {
   id: string;
   name: string;
-  type: 'standard' | 'inheritance';
-  balance: number;
+  type: "standard" | "inheritance";
+  balance: number; // satoshis
   addressIndex: number;
   derivedAddresses: DerivedAddress[];
   // Inheritance specific
@@ -20,8 +20,9 @@ export interface Account {
 export interface DerivedAddress {
   index: number;
   address: string;
+  change?: boolean;
   used: boolean;
-  balance?: number;
+  balance?: number; // satoshis
 }
 
 export interface SpendingConditions {
@@ -40,10 +41,10 @@ export interface InheritanceStatus {
 
 export interface Transaction {
   txid: string;
-  amount: number;
-  fee: number;
+  amount: number; // satoshis
+  fee: number; // satoshis
   timestamp: number;
-  type: 'incoming' | 'outgoing';
+  type: "incoming" | "outgoing";
   address: string;
   confirmed: boolean;
   confirmations: number;

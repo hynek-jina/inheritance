@@ -1,12 +1,46 @@
 import { MEMPOOL_API } from "../constants";
 import type { Transaction, UTXO } from "../types";
 
+interface AddressStats {
+  funded_txo_sum: number;
+  spent_txo_sum: number;
+}
+
+interface AddressResponse {
+  chain_stats?: AddressStats;
+  mempool_stats?: AddressStats;
+}
+
+interface AddressOutput {
+  scriptpubkey_address?: string;
+  value: number;
+}
+
+interface AddressInput {
+  prevout?: {
+    scriptpubkey_address?: string;
+    value: number;
+  };
+}
+
+interface AddressTx {
+  txid: string;
+  fee?: number;
+  vin: AddressInput[];
+  vout: AddressOutput[];
+  status: {
+    confirmed: boolean;
+    block_time?: number;
+    block_height?: number;
+  };
+}
+
 export async function getAddressBalance(address: string): Promise<number> {
   try {
     const response = await fetch(`${MEMPOOL_API}/address/${address}`);
     if (!response.ok) throw new Error("Failed to fetch balance");
 
-    const data = await response.json();
+    const data = (await response.json()) as AddressResponse;
     const chainFunded = data.chain_stats?.funded_txo_sum || 0;
     const chainSpent = data.chain_stats?.spent_txo_sum || 0;
     const mempoolFunded = data.mempool_stats?.funded_txo_sum || 0;
@@ -14,7 +48,7 @@ export async function getAddressBalance(address: string): Promise<number> {
 
     const funded = chainFunded + mempoolFunded;
     const spent = chainSpent + mempoolSpent;
-    return (funded - spent) / 100000000; // Convert satoshis to BTC
+    return funded - spent;
   } catch (error) {
     console.error("Error fetching balance:", error);
     return 0;
@@ -38,35 +72,33 @@ export async function getTransactions(address: string): Promise<Transaction[]> {
     const response = await fetch(`${MEMPOOL_API}/address/${address}/txs`);
     if (!response.ok) throw new Error("Failed to fetch transactions");
 
-    const txs = await response.json();
+    const txs = (await response.json()) as AddressTx[];
 
-    return txs.map((tx: any) => {
+    return txs.map((tx) => {
       const isIncoming = tx.vout.some(
-        (output: any) => output.scriptpubkey_address === address,
+        (output) => output.scriptpubkey_address === address,
       );
 
       let amount = 0;
       if (isIncoming) {
         amount = tx.vout
-          .filter((output: any) => output.scriptpubkey_address === address)
-          .reduce((sum: number, output: any) => sum + output.value, 0);
+          .filter((output) => output.scriptpubkey_address === address)
+          .reduce((sum, output) => sum + output.value, 0);
       } else {
         amount = tx.vin
-          .filter(
-            (input: any) => input.prevout.scriptpubkey_address === address,
-          )
-          .reduce((sum: number, input: any) => sum + input.prevout.value, 0);
+          .filter((input) => input.prevout?.scriptpubkey_address === address)
+          .reduce((sum, input) => sum + (input.prevout?.value || 0), 0);
       }
 
       return {
         txid: tx.txid,
-        amount: amount / 100000000,
-        fee: (tx.fee || 0) / 100000000,
+        amount,
+        fee: tx.fee || 0,
         timestamp: tx.status.block_time || Date.now() / 1000,
         type: isIncoming ? "incoming" : "outgoing",
         address: address,
         confirmed: tx.status.confirmed,
-        confirmations: tx.status.confirmed ? tx.status.block_height : 0,
+        confirmations: tx.status.confirmed ? tx.status.block_height || 0 : 0,
       };
     });
   } catch (error) {

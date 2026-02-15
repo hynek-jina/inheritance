@@ -32,8 +32,9 @@ export function deriveTaprootAddress(
   masterKey: HDKey,
   accountIndex: number,
   addressIndex: number,
+  change: 0 | 1 = 0,
 ): string {
-  const path = `${TAPROOT_PATH}/${accountIndex}'/0/${addressIndex}`;
+  const path = `${TAPROOT_PATH}/${accountIndex}'/${change}/${addressIndex}`;
   const child = masterKey.derive(path);
 
   if (!child.publicKey) {
@@ -55,8 +56,9 @@ export function getPrivateKeyForAddress(
   masterKey: HDKey,
   accountIndex: number,
   addressIndex: number,
+  change: 0 | 1 = 0,
 ): Buffer {
-  const path = `${TAPROOT_PATH}/${accountIndex}'/0/${addressIndex}`;
+  const path = `${TAPROOT_PATH}/${accountIndex}'/${change}/${addressIndex}`;
   const child = masterKey.derive(path);
 
   if (!child.privateKey) {

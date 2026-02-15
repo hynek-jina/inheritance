@@ -1,20 +1,13 @@
-import { useState, useEffect } from 'react';
-import { Welcome } from './components/Welcome';
-import { Accounts } from './components/Accounts';
-import { loadWallet } from './utils/storage';
-import './App.css';
+import { useState } from "react";
+import "./App.css";
+import { Accounts } from "./components/Accounts";
+import { Welcome } from "./components/Welcome";
+import { loadWallet } from "./utils/storage";
 
 function App() {
-  const [wallet, setWallet] = useState<{ mnemonic: string } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const saved = loadWallet();
-    if (saved) {
-      setWallet(saved);
-    }
-    setIsLoading(false);
-  }, []);
+  const [wallet, setWallet] = useState<{ mnemonic: string } | null>(() =>
+    loadWallet(),
+  );
 
   const handleWalletCreated = () => {
     const saved = loadWallet();
@@ -26,14 +19,6 @@ function App() {
   const handleLogout = () => {
     setWallet(null);
   };
-
-  if (isLoading) {
-    return (
-      <div className="app-loading">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
 
   if (!wallet) {
     return <Welcome onWalletCreated={handleWalletCreated} />;
