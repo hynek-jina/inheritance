@@ -1,9 +1,13 @@
-import { HDKey } from '@scure/bip32';
-import { TESTNET_NETWORK, TAPROOT_PATH } from '../constants';
-import * as bitcoin from 'bitcoinjs-lib';
-import * as ecc from 'tiny-secp256k1';
-import { Buffer } from 'buffer';
-import { generateMnemonic as slip39GenerateMnemonic, validateMnemonic, recoverMasterSecret } from './slip39-full';
+import { HDKey } from "@scure/bip32";
+import * as bitcoin from "bitcoinjs-lib";
+import { Buffer } from "buffer";
+import * as ecc from "tiny-secp256k1";
+import { TAPROOT_PATH, TESTNET_NETWORK } from "../constants";
+import {
+  recoverMasterSecret,
+  generateMnemonic as slip39GenerateMnemonic,
+  validateMnemonic,
+} from "./slip39-full";
 
 bitcoin.initEccLib(ecc);
 
@@ -17,7 +21,9 @@ export function generateMnemonic(): string {
 
 export { validateMnemonic };
 
-export async function getMasterKeyFromMnemonic(mnemonic: string): Promise<HDKey> {
+export async function getMasterKeyFromMnemonic(
+  mnemonic: string,
+): Promise<HDKey> {
   const masterSecret = await recoverMasterSecret(mnemonic);
   return HDKey.fromMasterSeed(masterSecret);
 }
@@ -25,17 +31,17 @@ export async function getMasterKeyFromMnemonic(mnemonic: string): Promise<HDKey>
 export function deriveTaprootAddress(
   masterKey: HDKey,
   accountIndex: number,
-  addressIndex: number
+  addressIndex: number,
 ): string {
-  const path = `${TAPROOT_PATH}/${accountIndex}/${addressIndex}`;
+  const path = `${TAPROOT_PATH}/${accountIndex}'/0/${addressIndex}`;
   const child = masterKey.derive(path);
-  
+
   if (!child.publicKey) {
-    throw new Error('Failed to derive public key');
+    throw new Error("Failed to derive public key");
   }
 
   const internalKey = Buffer.from(child.publicKey);
-  
+
   // Create Taproot output
   const payment = bitcoin.payments.p2tr({
     internalPubkey: internalKey.slice(1, 33),
@@ -48,13 +54,13 @@ export function deriveTaprootAddress(
 export function getPrivateKeyForAddress(
   masterKey: HDKey,
   accountIndex: number,
-  addressIndex: number
+  addressIndex: number,
 ): Buffer {
-  const path = `${TAPROOT_PATH}/${accountIndex}/${addressIndex}`;
+  const path = `${TAPROOT_PATH}/${accountIndex}'/0/${addressIndex}`;
   const child = masterKey.derive(path);
-  
+
   if (!child.privateKey) {
-    throw new Error('Failed to derive private key');
+    throw new Error("Failed to derive private key");
   }
 
   return Buffer.from(child.privateKey);
@@ -62,14 +68,14 @@ export function getPrivateKeyForAddress(
 
 export function derivePublicKey(
   masterKey: HDKey,
-  accountIndex: number
+  accountIndex: number,
 ): string {
-  const path = `${TAPROOT_PATH}/${accountIndex}`;
+  const path = `${TAPROOT_PATH}/${accountIndex}'`;
   const child = masterKey.derive(path);
-  
+
   if (!child.publicKey) {
-    throw new Error('Failed to derive public key');
+    throw new Error("Failed to derive public key");
   }
 
-  return Buffer.from(child.publicKey).toString('hex');
+  return Buffer.from(child.publicKey).toString("hex");
 }

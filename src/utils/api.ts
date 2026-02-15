@@ -1,17 +1,22 @@
-import { MEMPOOL_API } from '../constants';
-import type { UTXO, Transaction } from '../types';
+import { MEMPOOL_API } from "../constants";
+import type { Transaction, UTXO } from "../types";
 
 export async function getAddressBalance(address: string): Promise<number> {
   try {
     const response = await fetch(`${MEMPOOL_API}/address/${address}`);
-    if (!response.ok) throw new Error('Failed to fetch balance');
-    
+    if (!response.ok) throw new Error("Failed to fetch balance");
+
     const data = await response.json();
-    const funded = data.chain_stats.funded_txo_sum || 0;
-    const spent = data.chain_stats.spent_txo_sum || 0;
+    const chainFunded = data.chain_stats?.funded_txo_sum || 0;
+    const chainSpent = data.chain_stats?.spent_txo_sum || 0;
+    const mempoolFunded = data.mempool_stats?.funded_txo_sum || 0;
+    const mempoolSpent = data.mempool_stats?.spent_txo_sum || 0;
+
+    const funded = chainFunded + mempoolFunded;
+    const spent = chainSpent + mempoolSpent;
     return (funded - spent) / 100000000; // Convert satoshis to BTC
   } catch (error) {
-    console.error('Error fetching balance:', error);
+    console.error("Error fetching balance:", error);
     return 0;
   }
 }
@@ -19,27 +24,27 @@ export async function getAddressBalance(address: string): Promise<number> {
 export async function getAddressUTXOs(address: string): Promise<UTXO[]> {
   try {
     const response = await fetch(`${MEMPOOL_API}/address/${address}/utxo`);
-    if (!response.ok) throw new Error('Failed to fetch UTXOs');
-    
+    if (!response.ok) throw new Error("Failed to fetch UTXOs");
+
     return await response.json();
   } catch (error) {
-    console.error('Error fetching UTXOs:', error);
+    console.error("Error fetching UTXOs:", error);
     return [];
   }
-  }
+}
 
 export async function getTransactions(address: string): Promise<Transaction[]> {
   try {
     const response = await fetch(`${MEMPOOL_API}/address/${address}/txs`);
-    if (!response.ok) throw new Error('Failed to fetch transactions');
-    
+    if (!response.ok) throw new Error("Failed to fetch transactions");
+
     const txs = await response.json();
-    
+
     return txs.map((tx: any) => {
-      const isIncoming = tx.vout.some((output: any) => 
-        output.scriptpubkey_address === address
+      const isIncoming = tx.vout.some(
+        (output: any) => output.scriptpubkey_address === address,
       );
-      
+
       let amount = 0;
       if (isIncoming) {
         amount = tx.vout
@@ -47,32 +52,38 @@ export async function getTransactions(address: string): Promise<Transaction[]> {
           .reduce((sum: number, output: any) => sum + output.value, 0);
       } else {
         amount = tx.vin
-          .filter((input: any) => input.prevout.scriptpubkey_address === address)
+          .filter(
+            (input: any) => input.prevout.scriptpubkey_address === address,
+          )
           .reduce((sum: number, input: any) => sum + input.prevout.value, 0);
       }
-      
+
       return {
         txid: tx.txid,
         amount: amount / 100000000,
         fee: (tx.fee || 0) / 100000000,
         timestamp: tx.status.block_time || Date.now() / 1000,
-        type: isIncoming ? 'incoming' : 'outgoing',
+        type: isIncoming ? "incoming" : "outgoing",
         address: address,
         confirmed: tx.status.confirmed,
         confirmations: tx.status.confirmed ? tx.status.block_height : 0,
       };
     });
   } catch (error) {
-    console.error('Error fetching transactions:', error);
+    console.error("Error fetching transactions:", error);
     return [];
   }
 }
 
-export async function getFeeEstimates(): Promise<{ fastest: number; halfHour: number; hour: number }> {
+export async function getFeeEstimates(): Promise<{
+  fastest: number;
+  halfHour: number;
+  hour: number;
+}> {
   try {
     const response = await fetch(`${MEMPOOL_API}/fees/recommended`);
-    if (!response.ok) throw new Error('Failed to fetch fee estimates');
-    
+    if (!response.ok) throw new Error("Failed to fetch fee estimates");
+
     const data = await response.json();
     return {
       fastest: data.fastestFee,
@@ -80,7 +91,7 @@ export async function getFeeEstimates(): Promise<{ fastest: number; halfHour: nu
       hour: data.hourFee,
     };
   } catch (error) {
-    console.error('Error fetching fee estimates:', error);
+    console.error("Error fetching fee estimates:", error);
     return { fastest: 10, halfHour: 5, hour: 1 };
   }
 }
@@ -88,21 +99,21 @@ export async function getFeeEstimates(): Promise<{ fastest: number; halfHour: nu
 export async function broadcastTransaction(txHex: string): Promise<string> {
   try {
     const response = await fetch(`${MEMPOOL_API}/tx`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'text/plain',
+        "Content-Type": "text/plain",
       },
       body: txHex,
     });
-    
+
     if (!response.ok) {
       const error = await response.text();
       throw new Error(`Failed to broadcast: ${error}`);
     }
-    
+
     return await response.text();
   } catch (error) {
-    console.error('Error broadcasting transaction:', error);
+    console.error("Error broadcasting transaction:", error);
     throw error;
   }
 }
