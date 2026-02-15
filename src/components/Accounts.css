@@ -1,0 +1,237 @@
+.accounts-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #fff;
+}
+
+.accounts-content {
+  padding: 20px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.loading-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(247, 147, 26, 0.3);
+  border-top-color: #F7931A;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.balance-card {
+  background: linear-gradient(135deg, #F7931A 0%, #e07c00 100%);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 30px rgba(247, 147, 26, 0.3);
+}
+
+.balance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.balance-label {
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.refresh-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: rotate(180deg);
+}
+
+.balance-amount {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.btc-label {
+  font-size: 1rem;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.balance-testnet {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+
+.action-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn.receive {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4CAF50;
+}
+
+.action-btn.receive:hover:not(:disabled) {
+  background: rgba(76, 175, 80, 0.3);
+}
+
+.action-btn.send {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+}
+
+.action-btn.send:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.3);
+}
+
+.action-icon {
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+}
+
+.accounts-list {
+  margin-bottom: 80px;
+}
+
+.accounts-list h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  opacity: 0.7;
+}
+
+.account-item {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.account-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.account-item.selected {
+  border-color: #F7931A;
+  background: rgba(247, 147, 26, 0.1);
+}
+
+.account-item.inheritance {
+  border-left: 4px solid #9C27B0;
+}
+
+.account-info {
+  margin-bottom: 8px;
+}
+
+.account-name {
+  font-weight: 600;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inheritance-icon {
+  font-size: 1.2rem;
+}
+
+.account-type {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  margin-top: 4px;
+}
+
+.inheritance-status {
+  font-size: 0.75rem;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(156, 39, 176, 0.2);
+  border-radius: 8px;
+  color: #CE93D8;
+}
+
+.account-balance {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #F7931A;
+}
+
+.add-inheritance-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
+  color: white;
+  border: none;
+  padding: 16px 24px;
+  border-radius: 50px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 20px rgba(156, 39, 176, 0.4);
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.add-inheritance-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(156, 39, 176, 0.5);
+}
+
+.plus-icon {
+  font-size: 1.5rem;
+  font-weight: 300;
+}
