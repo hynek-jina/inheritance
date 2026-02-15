@@ -11,6 +11,33 @@ import {
 
 bitcoin.initEccLib(ecc);
 
+const MAINNET_BIP32 = {
+  private: 0x0488ade4,
+  public: 0x0488b21e,
+};
+
+function parseExtendedKey(extendedKey: string): HDKey {
+  if (extendedKey.startsWith("tpub") || extendedKey.startsWith("tprv")) {
+    return HDKey.fromExtendedKey(extendedKey, {
+      private: TESTNET_NETWORK.bip32.private,
+      public: TESTNET_NETWORK.bip32.public,
+    });
+  }
+
+  if (extendedKey.startsWith("xpub") || extendedKey.startsWith("xprv")) {
+    return HDKey.fromExtendedKey(extendedKey, MAINNET_BIP32);
+  }
+
+  try {
+    return HDKey.fromExtendedKey(extendedKey, {
+      private: TESTNET_NETWORK.bip32.private,
+      public: TESTNET_NETWORK.bip32.public,
+    });
+  } catch {
+    return HDKey.fromExtendedKey(extendedKey, MAINNET_BIP32);
+  }
+}
+
 // Wrapper that generates random master secret
 export function generateMnemonic(): string {
   // Generate 16 bytes (128-bit) for 20-word mnemonic
@@ -25,7 +52,10 @@ export async function getMasterKeyFromMnemonic(
   mnemonic: string,
 ): Promise<HDKey> {
   const masterSecret = await recoverMasterSecret(mnemonic);
-  return HDKey.fromMasterSeed(masterSecret);
+  return HDKey.fromMasterSeed(masterSecret, {
+    private: TESTNET_NETWORK.bip32.private,
+    public: TESTNET_NETWORK.bip32.public,
+  });
 }
 
 export function deriveTaprootAddress(
@@ -80,4 +110,55 @@ export function derivePublicKey(
   }
 
   return Buffer.from(child.publicKey).toString("hex");
+}
+
+export function deriveInheritanceAddressFromXpubs(
+  userAccountXpub: string,
+  heirAccountXpub: string,
+  addressIndex: number,
+  change: 0 | 1 = 0,
+): string {
+  const userAccountKey = parseExtendedKey(userAccountXpub);
+  const heirAccountKey = parseExtendedKey(heirAccountXpub);
+
+  const userChild = userAccountKey
+    .deriveChild(change)
+    .deriveChild(addressIndex);
+  const heirChild = heirAccountKey
+    .deriveChild(change)
+    .deriveChild(addressIndex);
+
+  if (!userChild.publicKey || !heirChild.publicKey) {
+    throw new Error("Failed to derive multisig child keys");
+  }
+
+  const multisig = bitcoin.payments.p2ms({
+    m: 2,
+    pubkeys: [
+      Buffer.from(userChild.publicKey),
+      Buffer.from(heirChild.publicKey),
+    ].sort(Buffer.compare),
+    network: TESTNET_NETWORK,
+  });
+
+  const payment = bitcoin.payments.p2wsh({
+    redeem: multisig,
+    network: TESTNET_NETWORK,
+  });
+
+  if (!payment.address) {
+    throw new Error("Failed to derive inheritance address");
+  }
+
+  return payment.address;
+}
+
+export function normalizeExtendedPublicKey(extendedKey: string): string {
+  const key = parseExtendedKey(extendedKey);
+
+  if (!key.publicExtendedKey) {
+    throw new Error("Klíč neobsahuje veřejnou extended část");
+  }
+
+  return key.publicExtendedKey;
 }

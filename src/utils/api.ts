@@ -11,6 +11,12 @@ interface AddressResponse {
   mempool_stats?: AddressStats;
 }
 
+export interface AddressFundingStats {
+  funded: number;
+  spent: number;
+  balance: number;
+}
+
 interface AddressOutput {
   scriptpubkey_address?: string;
   value: number;
@@ -36,6 +42,13 @@ interface AddressTx {
 }
 
 export async function getAddressBalance(address: string): Promise<number> {
+  const stats = await getAddressFundingStats(address);
+  return stats.balance;
+}
+
+export async function getAddressFundingStats(
+  address: string,
+): Promise<AddressFundingStats> {
   try {
     const response = await fetch(`${MEMPOOL_API}/address/${address}`);
     if (!response.ok) throw new Error("Failed to fetch balance");
@@ -48,10 +61,19 @@ export async function getAddressBalance(address: string): Promise<number> {
 
     const funded = chainFunded + mempoolFunded;
     const spent = chainSpent + mempoolSpent;
-    return funded - spent;
+
+    return {
+      funded,
+      spent,
+      balance: funded - spent,
+    };
   } catch (error) {
     console.error("Error fetching balance:", error);
-    return 0;
+    return {
+      funded: 0,
+      spent: 0,
+      balance: 0,
+    };
   }
 }
 

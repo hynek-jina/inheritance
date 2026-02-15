@@ -13,6 +13,14 @@ export interface Account {
   // Inheritance specific
   heirPublicKey?: string;
   heirName?: string;
+  heirFingerprint?: string;
+  heirXpub?: string;
+  localRole?: "user" | "heir";
+  localFingerprint?: string;
+  localXpub?: string;
+  counterpartyFingerprint?: string;
+  counterpartyXpub?: string;
+  identityDerivationPath?: string;
   spendingConditions?: SpendingConditions;
   inheritanceStatus?: InheritanceStatus;
 }
@@ -50,6 +58,36 @@ export interface Transaction {
   confirmations: number;
 }
 
+export interface StandardAccountDetails {
+  masterFingerprint: string;
+  accountXpub: string;
+  derivationPath: string;
+  transactions: Transaction[];
+  receiveAddresses: AccountAddressAuditEntry[];
+  changeAddresses: AccountAddressAuditEntry[];
+}
+
+export interface InheritanceAccountDetails {
+  localRole: "user" | "heir";
+  userFingerprint: string;
+  userXpub: string;
+  heirFingerprint: string;
+  heirXpub: string;
+  derivationPath: string;
+  spendingConditions: SpendingConditions;
+  transactions: Transaction[];
+  receiveAddresses: AccountAddressAuditEntry[];
+  changeAddresses: AccountAddressAuditEntry[];
+}
+
+export interface AccountAddressAuditEntry {
+  index: number;
+  address: string;
+  totalReceived: number;
+  currentBalance: number;
+  hasUnspent: boolean;
+}
+
 export interface UTXO {
   txid: string;
   vout: number;
@@ -65,5 +103,6 @@ export interface UTXO {
 export interface HeirContact {
   id: string;
   name: string;
-  publicKey: string;
+  fingerprint: string;
+  xpub: string;
 }

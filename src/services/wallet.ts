@@ -8,26 +8,334 @@ import {
 } from "../constants";
 import type {
   Account,
+  AccountAddressAuditEntry,
   DerivedAddress,
   HeirContact,
+  InheritanceAccountDetails,
   SpendingConditions,
+  StandardAccountDetails,
+  Transaction,
   Wallet,
 } from "../types";
 import {
   broadcastTransaction,
   getAddressBalance,
+  getAddressFundingStats,
   getAddressUTXOs,
+  getTransactions,
 } from "../utils/api";
 import {
+  deriveInheritanceAddressFromXpubs,
   deriveTaprootAddress,
   generateMnemonic,
   getMasterKeyFromMnemonic,
   getPrivateKeyForAddress,
+  normalizeExtendedPublicKey,
   validateMnemonic,
 } from "../utils/bitcoin";
 import { loadAccounts, saveAccounts, saveWallet } from "../utils/storage";
 
 bitcoin.initEccLib(ecc);
+
+const ADDRESS_AUDIT_LIMIT = 10;
+
+function formatFingerprint(fingerprint: number): string {
+  return (fingerprint >>> 0).toString(16).padStart(8, "0");
+}
+
+function deriveLocalIdentity(
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>,
+): {
+  fingerprint: string;
+  xpub: string;
+  derivationPath: string;
+} {
+  const derivationPath = `${TAPROOT_PATH}/0'`;
+  const identityKey = masterKey.derive(derivationPath);
+
+  if (!identityKey.publicExtendedKey) {
+    throw new Error("Nepodařilo se vytvořit lokální tpub");
+  }
+
+  return {
+    fingerprint: formatFingerprint(masterKey.fingerprint),
+    xpub: identityKey.publicExtendedKey,
+    derivationPath,
+  };
+}
+
+function deterministicInheritanceId(
+  fingerprintA: string,
+  xpubA: string,
+  fingerprintB: string,
+  xpubB: string,
+): string {
+  const seed = [`${fingerprintA}:${xpubA}`, `${fingerprintB}:${xpubB}`]
+    .sort()
+    .join("|");
+
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index++) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return `inheritance-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export async function getWalletFingerprint(mnemonic: string): Promise<string> {
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  return formatFingerprint(masterKey.fingerprint);
+}
+
+export async function getLocalInheritanceIdentity(mnemonic: string): Promise<{
+  fingerprint: string;
+  tpub: string;
+  derivationPath: string;
+}> {
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const identity = deriveLocalIdentity(masterKey);
+
+  return {
+    fingerprint: identity.fingerprint,
+    tpub: identity.xpub,
+    derivationPath: identity.derivationPath,
+  };
+}
+
+function normalizeFingerprint(fingerprint: string): string {
+  return fingerprint.trim().toLowerCase().replace(/^0x/, "").padStart(8, "0");
+}
+
+function normalizeExtendedKey(extendedKey: string): string {
+  return extendedKey.replace(/\s+/g, "").trim();
+}
+
+function normalizeCounterpartyContact(counterparty: HeirContact): {
+  fingerprint: string;
+  xpub: string;
+} {
+  const normalizedFingerprint = normalizeFingerprint(counterparty.fingerprint);
+  if (!/^[0-9a-f]{8}$/i.test(normalizedFingerprint)) {
+    throw new Error("Fingerprint protistrany musí mít 8 hex znaků");
+  }
+
+  const normalizedXpubInput = normalizeExtendedKey(counterparty.xpub);
+  if (!normalizedXpubInput) {
+    throw new Error("tpub/xpub protistrany je prázdný");
+  }
+
+  try {
+    return {
+      fingerprint: normalizedFingerprint,
+      xpub: normalizeExtendedPublicKey(normalizedXpubInput),
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? ` (${error.message})` : "";
+    throw new Error(`Neplatný xpub/tpub protistrany${reason}`);
+  }
+}
+
+function resolveInheritanceParticipants(
+  account: Account,
+  identity: { fingerprint: string; xpub: string; derivationPath: string },
+): {
+  localRole: "user" | "heir";
+  localXpub: string;
+  counterpartyXpub: string;
+  userFingerprint: string;
+  userXpub: string;
+  heirFingerprint: string;
+  heirXpub: string;
+} {
+  const localRole = account.localRole || "user";
+  const localFingerprint = account.localFingerprint || identity.fingerprint;
+  const localXpub = account.localXpub || identity.xpub;
+  const counterpartyFingerprint =
+    account.counterpartyFingerprint || account.heirFingerprint || "";
+  const counterpartyXpub = account.counterpartyXpub || account.heirXpub || "";
+
+  const userFingerprint =
+    localRole === "user" ? localFingerprint : counterpartyFingerprint;
+  const userXpub = localRole === "user" ? localXpub : counterpartyXpub;
+  const heirFingerprint =
+    localRole === "heir" ? localFingerprint : counterpartyFingerprint;
+  const heirXpub = localRole === "heir" ? localXpub : counterpartyXpub;
+
+  return {
+    localRole,
+    localXpub,
+    counterpartyXpub,
+    userFingerprint,
+    userXpub,
+    heirFingerprint,
+    heirXpub,
+  };
+}
+
+async function getAccountTransactions(
+  account: Account,
+): Promise<Transaction[]> {
+  const txById = new Map<string, Transaction>();
+  for (const derivedAddress of account.derivedAddresses) {
+    const transactions = await getTransactions(derivedAddress.address);
+    for (const tx of transactions) {
+      if (!txById.has(tx.txid)) {
+        txById.set(tx.txid, tx);
+      }
+    }
+  }
+
+  return Array.from(txById.values())
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 10);
+}
+
+async function buildAddressAuditEntries(
+  addresses: Array<{ index: number; address: string }>,
+): Promise<AccountAddressAuditEntry[]> {
+  const audits = await Promise.all(
+    addresses.map(async ({ index, address }) => {
+      const [stats, utxos] = await Promise.all([
+        getAddressFundingStats(address),
+        getAddressUTXOs(address),
+      ]);
+      const utxoBalance = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
+
+      return {
+        index,
+        address,
+        totalReceived: stats.funded,
+        currentBalance: Math.max(stats.balance, utxoBalance, 0),
+        hasUnspent: utxoBalance > 0,
+      };
+    }),
+  );
+
+  return audits;
+}
+
+function buildStandardAuditAddressSet(
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>,
+  accountIndex: number,
+): {
+  receive: Array<{ index: number; address: string }>;
+  change: Array<{ index: number; address: string }>;
+} {
+  return {
+    receive: Array.from({ length: ADDRESS_AUDIT_LIMIT }, (_, index) => ({
+      index,
+      address: deriveTaprootAddress(masterKey, accountIndex, index, 0),
+    })),
+    change: Array.from({ length: ADDRESS_AUDIT_LIMIT }, (_, index) => ({
+      index,
+      address: deriveTaprootAddress(masterKey, accountIndex, index, 1),
+    })),
+  };
+}
+
+function buildInheritanceAuditAddressSet(
+  localXpub: string,
+  counterpartyXpub: string,
+): {
+  receive: Array<{ index: number; address: string }>;
+  change: Array<{ index: number; address: string }>;
+} {
+  return {
+    receive: Array.from({ length: ADDRESS_AUDIT_LIMIT }, (_, index) => ({
+      index,
+      address: deriveInheritanceAddressFromXpubs(
+        localXpub,
+        counterpartyXpub,
+        index,
+        0,
+      ),
+    })),
+    change: Array.from({ length: ADDRESS_AUDIT_LIMIT }, (_, index) => ({
+      index,
+      address: deriveInheritanceAddressFromXpubs(
+        localXpub,
+        counterpartyXpub,
+        index,
+        1,
+      ),
+    })),
+  };
+}
+
+export async function getStandardAccountDetails(
+  mnemonic: string,
+  account: Account,
+): Promise<StandardAccountDetails | null> {
+  if (account.type !== "standard") {
+    return null;
+  }
+
+  const accounts = loadAccounts();
+  const accountIndex = accounts.findIndex((a: Account) => a.id === account.id);
+  if (accountIndex === -1) {
+    throw new Error("Účet nebyl nalezen");
+  }
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const derivationPath = `${TAPROOT_PATH}/${accountIndex}'`;
+  const accountKey = masterKey.derive(derivationPath);
+  const auditAddressSet = buildStandardAuditAddressSet(masterKey, accountIndex);
+  const [transactions, receiveAddresses, changeAddresses] = await Promise.all([
+    getAccountTransactions(account),
+    buildAddressAuditEntries(auditAddressSet.receive),
+    buildAddressAuditEntries(auditAddressSet.change),
+  ]);
+
+  return {
+    masterFingerprint: formatFingerprint(masterKey.fingerprint),
+    accountXpub: accountKey.publicExtendedKey || "",
+    derivationPath,
+    transactions,
+    receiveAddresses,
+    changeAddresses,
+  };
+}
+
+export async function getInheritanceAccountDetails(
+  mnemonic: string,
+  account: Account,
+): Promise<InheritanceAccountDetails | null> {
+  if (account.type !== "inheritance") {
+    return null;
+  }
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const identity = deriveLocalIdentity(masterKey);
+  const participants = resolveInheritanceParticipants(account, identity);
+
+  const auditAddressSet = participants.counterpartyXpub
+    ? buildInheritanceAuditAddressSet(
+        participants.localXpub,
+        participants.counterpartyXpub,
+      )
+    : { receive: [], change: [] };
+
+  const [transactions, receiveAddresses, changeAddresses] = await Promise.all([
+    getAccountTransactions(account),
+    buildAddressAuditEntries(auditAddressSet.receive),
+    buildAddressAuditEntries(auditAddressSet.change),
+  ]);
+
+  return {
+    localRole: participants.localRole,
+    userFingerprint: participants.userFingerprint,
+    userXpub: participants.userXpub,
+    heirFingerprint: participants.heirFingerprint,
+    heirXpub: participants.heirXpub,
+    derivationPath: account.identityDerivationPath || identity.derivationPath,
+    spendingConditions:
+      account.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS,
+    transactions,
+    receiveAddresses,
+    changeAddresses,
+  };
+}
 
 export async function createNewWallet(): Promise<Wallet> {
   const mnemonic = generateMnemonic();
@@ -103,18 +411,45 @@ export async function createStandardAccount(
 export async function createInheritanceAccount(
   mnemonic: string,
   name: string,
-  heir: HeirContact,
+  counterparty: HeirContact,
+  localRole: "user" | "heir" = "user",
   conditions: SpendingConditions = DEFAULT_INHERITANCE_CONDITIONS,
 ): Promise<Account> {
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
   const accounts = loadAccounts();
-  const accountIndex = accounts.length;
+  const identity = deriveLocalIdentity(masterKey);
 
-  // Generate first address
-  const address = deriveTaprootAddress(masterKey, accountIndex, 0);
+  const normalizedCounterparty = normalizeCounterpartyContact(counterparty);
+
+  let address = "";
+  try {
+    address = deriveInheritanceAddressFromXpubs(
+      identity.xpub,
+      normalizedCounterparty.xpub,
+      0,
+      0,
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? ` (${error.message})` : "";
+    throw new Error(`Neplatný xpub/tpub protistrany${reason}`);
+  }
+
+  const accountId = deterministicInheritanceId(
+    identity.fingerprint,
+    identity.xpub,
+    normalizedCounterparty.fingerprint,
+    normalizedCounterparty.xpub,
+  );
+
+  const existing = accounts.find(
+    (storedAccount) => storedAccount.id === accountId,
+  );
+  if (existing) {
+    return existing;
+  }
 
   const account: Account = {
-    id: `inheritance-${Date.now()}`,
+    id: accountId,
     name,
     type: "inheritance",
     balance: 0,
@@ -127,8 +462,15 @@ export async function createInheritanceAccount(
         used: false,
       },
     ],
-    heirPublicKey: heir.publicKey,
-    heirName: heir.name,
+    localRole,
+    localFingerprint: identity.fingerprint,
+    localXpub: identity.xpub,
+    counterpartyFingerprint: normalizedCounterparty.fingerprint,
+    counterpartyXpub: normalizedCounterparty.xpub,
+    identityDerivationPath: identity.derivationPath,
+    heirFingerprint: normalizedCounterparty.fingerprint,
+    heirXpub: normalizedCounterparty.xpub,
+    heirName: counterparty.name,
     spendingConditions: conditions,
     inheritanceStatus: {
       blocksSinceFunding: 0,
@@ -144,25 +486,120 @@ export async function createInheritanceAccount(
   return account;
 }
 
-export async function updateAccountBalance(account: Account): Promise<Account> {
+export async function updateAccountBalance(
+  account: Account,
+  mnemonic: string,
+): Promise<Account> {
+  const accounts = loadAccounts();
+  const accountIndex = accounts.findIndex((a: Account) => a.id === account.id);
+  if (accountIndex === -1) {
+    return account;
+  }
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const knownByAddress = new Map(
+    account.derivedAddresses.map((addr) => [addr.address, addr] as const),
+  );
+
+  const candidates: DerivedAddress[] = [...account.derivedAddresses];
+  const addCandidate = (candidate: DerivedAddress) => {
+    if (!knownByAddress.has(candidate.address)) {
+      knownByAddress.set(candidate.address, candidate);
+      candidates.push(candidate);
+    }
+  };
+
+  if (account.type === "standard") {
+    for (let index = 0; index < ADDRESS_AUDIT_LIMIT; index++) {
+      addCandidate({
+        index,
+        address: deriveTaprootAddress(masterKey, accountIndex, index, 0),
+        change: false,
+        used: false,
+      });
+      addCandidate({
+        index,
+        address: deriveTaprootAddress(masterKey, accountIndex, index, 1),
+        change: true,
+        used: false,
+      });
+    }
+  } else {
+    const identity = deriveLocalIdentity(masterKey);
+    const localXpub = account.localXpub || identity.xpub;
+    const counterpartyXpub = account.counterpartyXpub || account.heirXpub;
+
+    if (counterpartyXpub) {
+      for (let index = 0; index < ADDRESS_AUDIT_LIMIT; index++) {
+        addCandidate({
+          index,
+          address: deriveInheritanceAddressFromXpubs(
+            localXpub,
+            counterpartyXpub,
+            index,
+            0,
+          ),
+          change: false,
+          used: false,
+        });
+        addCandidate({
+          index,
+          address: deriveInheritanceAddressFromXpubs(
+            localXpub,
+            counterpartyXpub,
+            index,
+            1,
+          ),
+          change: true,
+          used: false,
+        });
+      }
+    }
+  }
+
   let totalBalance = 0;
   const updatedAddresses: DerivedAddress[] = [];
 
-  for (const addr of account.derivedAddresses) {
-    const balance = await getAddressBalance(addr.address);
-    const utxos = await getAddressUTXOs(addr.address);
+  for (const addr of candidates) {
+    const [stats, utxos] = await Promise.all([
+      getAddressFundingStats(addr.address),
+      getAddressUTXOs(addr.address),
+    ]);
+
+    const utxoBalance = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
+    const balance = Math.max(utxoBalance, stats.balance, 0);
+    const hadAddress = account.derivedAddresses.some(
+      (known) => known.address === addr.address,
+    );
+    const hasActivity = stats.funded > 0 || utxos.length > 0 || addr.used;
+
+    if (!hadAddress && !hasActivity) {
+      continue;
+    }
 
     totalBalance += balance;
     updatedAddresses.push({
       ...addr,
       balance,
-      used: utxos.length > 0 || balance > 0,
+      used: hasActivity,
     });
   }
+
+  updatedAddresses.sort((a, b) => {
+    const changeA = a.change ? 1 : 0;
+    const changeB = b.change ? 1 : 0;
+    if (changeA !== changeB) return changeA - changeB;
+    return a.index - b.index;
+  });
+
+  const maxReceiveIndex = updatedAddresses
+    .filter((addr) => !addr.change)
+    .reduce((max, addr) => Math.max(max, addr.index), -1);
 
   const updatedAccount = {
     ...account,
     balance: totalBalance,
+    addressIndex: Math.max(account.addressIndex, maxReceiveIndex + 1),
     derivedAddresses: updatedAddresses,
   };
 
@@ -175,12 +612,8 @@ export async function updateAccountBalance(account: Account): Promise<Account> {
   }
 
   // Save updated account
-  const accounts = loadAccounts();
-  const index = accounts.findIndex((a: Account) => a.id === account.id);
-  if (index !== -1) {
-    accounts[index] = updatedAccount;
-    saveAccounts(accounts);
-  }
+  accounts[accountIndex] = updatedAccount;
+  saveAccounts(accounts);
 
   return updatedAccount;
 }
@@ -237,7 +670,17 @@ export async function generateNewAddress(
   const newIndex = account.derivedAddresses.filter(
     (a: DerivedAddress) => !a.change,
   ).length;
-  const address = deriveTaprootAddress(masterKey, accountIndex, newIndex);
+  const localIdentity = deriveLocalIdentity(masterKey);
+  const counterpartyXpub = account.counterpartyXpub || account.heirXpub;
+  const address =
+    account.type === "inheritance" && counterpartyXpub
+      ? deriveInheritanceAddressFromXpubs(
+          account.localXpub || localIdentity.xpub,
+          counterpartyXpub,
+          newIndex,
+          0,
+        )
+      : deriveTaprootAddress(masterKey, accountIndex, newIndex);
 
   const newAddress: DerivedAddress = {
     index: newIndex,
@@ -327,6 +770,12 @@ export async function sendBitcoin(
   amountSats: number,
   feeRate: number,
 ): Promise<string> {
+  if (account.type === "inheritance") {
+    throw new Error(
+      "Utrácení z dědického účtu zatím není implementováno podle timelock podmínek.",
+    );
+  }
+
   const network = TESTNET_NETWORK as bitcoin.Network;
   const accounts = loadAccounts();
   const accountIndex = accounts.findIndex((a: Account) => a.id === account.id);

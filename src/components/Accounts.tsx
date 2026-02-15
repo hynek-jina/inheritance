@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { updateAccountBalance } from "../services/wallet";
+import { useCallback, useEffect, useState } from "react";
+import { getWalletFingerprint, updateAccountBalance } from "../services/wallet";
 import type { Account } from "../types";
 import { loadAccounts } from "../utils/storage";
+import { AccountDetailPage } from "./AccountDetailPage";
 import "./Accounts.css";
 import { InheritanceModal } from "./InheritanceModal";
 import { MenuBar } from "./MenuBar";
@@ -15,27 +16,32 @@ interface AccountsProps {
 
 export function Accounts({ mnemonic, onLogout }: AccountsProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [detailAccount, setDetailAccount] = useState<Account | null>(null);
+  const [modalAccount, setModalAccount] = useState<Account | null>(null);
   const [showReceive, setShowReceive] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [showInheritance, setShowInheritance] = useState(false);
+  const [walletFingerprint, setWalletFingerprint] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
-  async function loadAccountsData() {
+  const loadAccountsData = useCallback(async () => {
     setIsLoading(true);
     const loadedAccounts = loadAccounts();
 
     // Update balances for all accounts
     const updatedAccounts = await Promise.all(
-      loadedAccounts.map((account) => updateAccountBalance(account)),
+      loadedAccounts.map((account) => updateAccountBalance(account, mnemonic)),
     );
+    const fingerprint = await getWalletFingerprint(mnemonic);
 
     setAccounts(updatedAccounts);
-    if (updatedAccounts.length > 0) {
-      setSelectedAccount(updatedAccounts[0]);
-    }
+    setWalletFingerprint(fingerprint);
+    setDetailAccount((prev) => {
+      if (!prev) return prev;
+      return updatedAccounts.find((a) => a.id === prev.id) || prev;
+    });
     setIsLoading(false);
-  }
+  }, [mnemonic]);
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
@@ -45,7 +51,7 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
     return () => {
       window.clearTimeout(timerId);
     };
-  }, []);
+  }, [loadAccountsData]);
 
   const totalBalance = accounts.reduce((sum, acc) => sum + acc.balance, 0);
 
@@ -68,110 +74,112 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
     <div className="accounts-container">
       <MenuBar mnemonic={mnemonic} onLogout={onLogout} />
 
-      <div className="accounts-content">
-        {/* Total Balance Card */}
-        <div className="balance-card">
-          <div className="balance-header">
-            <span className="balance-label">Celková balance</span>
-            <button
-              onClick={handleRefresh}
-              className="refresh-btn"
-              title="Obnovit"
-            >
-              ↻
-            </button>
-          </div>
-          <div className="balance-amount">
-            {totalBalance.toLocaleString("cs-CZ")}{" "}
-            <span className="btc-label">sats</span>
-          </div>
-          <div className="balance-testnet">Testnet</div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="action-buttons">
-          <button
-            onClick={() => selectedAccount && setShowReceive(true)}
-            className="action-btn receive"
-            disabled={!selectedAccount}
-          >
-            <span className="action-icon">↓</span>
-            Přijmout
-          </button>
-          <button
-            onClick={() => selectedAccount && setShowSend(true)}
-            className="action-btn send"
-            disabled={!selectedAccount || selectedAccount.balance === 0}
-          >
-            <span className="action-icon">↑</span>
-            Odeslat
-          </button>
-        </div>
-
-        {/* Accounts List */}
-        <div className="accounts-list">
-          <h2>Účty</h2>
-          {accounts.map((account) => (
-            <div
-              key={account.id}
-              className={`account-item ${selectedAccount?.id === account.id ? "selected" : ""} ${account.type}`}
-              onClick={() => setSelectedAccount(account)}
-            >
-              <div className="account-info">
-                <div className="account-name">
-                  {account.type === "inheritance" && (
-                    <span className="inheritance-icon">🛡️</span>
-                  )}
-                  {account.name}
-                </div>
-                <div className="account-type">
-                  {account.type === "inheritance"
-                    ? "Dědický účet"
-                    : "Standardní účet"}
-                </div>
-                {account.type === "inheritance" &&
-                  account.inheritanceStatus && (
-                    <div className="inheritance-status">
-                      {account.inheritanceStatus.canUserSpend &&
-                        "✓ Můžete utrácet"}
-                      {account.inheritanceStatus.requiresMultisig &&
-                        "🔒 Multisig vyžadován"}
-                      {!account.inheritanceStatus.canUserSpend &&
-                        !account.inheritanceStatus.requiresMultisig &&
-                        account.balance > 0 &&
-                        "⏳ Čekání na timelock"}
-                    </div>
-                  )}
-              </div>
-              <div className="account-balance">
-                {account.balance.toLocaleString("cs-CZ")} sats
-              </div>
+      {detailAccount ? (
+        <AccountDetailPage
+          account={detailAccount}
+          mnemonic={mnemonic}
+          onBack={() => setDetailAccount(null)}
+          onRefresh={handleRefresh}
+          onReceive={(account) => {
+            setModalAccount(account);
+            setShowReceive(true);
+          }}
+          onSend={(account) => {
+            setModalAccount(account);
+            setShowSend(true);
+          }}
+        />
+      ) : (
+        <div className="accounts-content">
+          {/* Total Balance Card */}
+          <div className="balance-card">
+            <div className="balance-header">
+              <span className="balance-label">Celková balance</span>
+              <button
+                onClick={handleRefresh}
+                className="refresh-btn"
+                title="Obnovit"
+              >
+                ↻
+              </button>
             </div>
-          ))}
-        </div>
+            <div className="balance-amount">
+              {totalBalance.toLocaleString("cs-CZ")}{" "}
+              <span className="btc-label">sats</span>
+            </div>
+            <div className="balance-testnet">Testnet</div>
+            {walletFingerprint && (
+              <div className="wallet-fingerprint">
+                Master fingerprint: {walletFingerprint}
+              </div>
+            )}
+          </div>
 
-        {/* Add Inheritance Account Button */}
-        <button
-          onClick={() => setShowInheritance(true)}
-          className="add-inheritance-btn"
-        >
-          <span className="plus-icon">+</span>
-          Přidat dědický účet
-        </button>
-      </div>
+          {/* Accounts List */}
+          <div className="accounts-list">
+            <h2>Účty</h2>
+            {accounts.map((account) => (
+              <div
+                key={account.id}
+                className={`account-item ${account.type}`}
+                onClick={() => setDetailAccount(account)}
+              >
+                <div className="account-info">
+                  <div className="account-name">
+                    {account.type === "inheritance" && (
+                      <span className="inheritance-icon">🛡️</span>
+                    )}
+                    {account.name}
+                  </div>
+                  <div className="account-type">
+                    {account.type === "inheritance"
+                      ? "Dědický účet"
+                      : "Standardní účet"}
+                  </div>
+                  {account.type === "inheritance" &&
+                    account.inheritanceStatus && (
+                      <div className="inheritance-status">
+                        {account.inheritanceStatus.canUserSpend &&
+                          "✓ Můžete utrácet"}
+                        {account.inheritanceStatus.requiresMultisig &&
+                          "🔒 Multisig vyžadován"}
+                        {!account.inheritanceStatus.canUserSpend &&
+                          !account.inheritanceStatus.requiresMultisig &&
+                          account.balance > 0 &&
+                          "⏳ Čekání na timelock"}
+                      </div>
+                    )}
+                </div>
+                <div className="account-balance">
+                  {account.balance.toLocaleString("cs-CZ")} sats
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Add Inheritance Account Button */}
+          <button
+            onClick={() => setShowInheritance(true)}
+            className="add-inheritance-btn"
+          >
+            <span className="plus-icon">+</span>
+            Přidat dědický účet
+          </button>
+        </div>
+      )}
 
       {/* Modals */}
-      {showReceive && selectedAccount && (
+      {showReceive && modalAccount && (
         <ReceiveModal
-          account={selectedAccount}
+          account={modalAccount}
           mnemonic={mnemonic}
           onClose={() => setShowReceive(false)}
         />
       )}
 
-      {showSend && selectedAccount && (
+      {showSend && modalAccount && (
         <SendModal
-          account={selectedAccount}
+          account={modalAccount}
           mnemonic={mnemonic}
           onClose={() => setShowSend(false)}
           onSent={handleRefresh}

@@ -20,17 +20,9 @@ export const TAPROOT_PATH = "m/86'/1'";
 // Default spending conditions for inheritance accounts
 export const DEFAULT_INHERITANCE_CONDITIONS = {
   noSpendBlocks: 5,
-  multisigAfterBlocks: 6,
+  multisigAfterBlocks: 5,
   userOnlyAfterBlocks: 10,
   heirOnlyAfterBlocks: 20,
-};
-
-// Predefined heir contact (hardcoded for v1)
-export const DEFAULT_HEIR: { id: string; name: string; publicKey: string } = {
-  id: "heir-1",
-  name: "Rodinný dědic",
-  publicKey:
-    "03a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
 };
 
 // LocalStorage keys
