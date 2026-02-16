@@ -1,5 +1,5 @@
 .account-detail-page {
-  padding: 20px;
+  padding: 22px;
   max-width: 600px;
   margin: 0 auto;
 }
@@ -8,27 +8,39 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .back-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: white;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 8px 14px;
   cursor: pointer;
+  transition:
+    transform 0.2s,
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.back-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
 }
 
 .detail-balance-card {
   background: linear-gradient(135deg, #f7931a 0%, #e07c00 100%);
-  border-radius: 16px;
-  padding: 18px;
-  margin-bottom: 14px;
+  border-radius: 22px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 16px 38px rgba(247, 147, 26, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .detail-account-name {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
 }
 
@@ -40,7 +52,7 @@
 
 .detail-account-balance {
   margin-top: 12px;
-  font-size: 1.5rem;
+  font-size: 1.6rem;
   font-weight: 700;
 }
 
@@ -53,33 +65,69 @@
 
 .detail-action-btn {
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 14px;
   color: white;
   cursor: pointer;
   font-weight: 600;
+  border: 1px solid transparent;
+  transition:
+    transform 0.2s,
+    filter 0.2s,
+    border-color 0.2s;
+}
+
+.detail-action-btn:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.08);
 }
 
 .detail-action-btn.receive {
-  background: rgba(76, 175, 80, 0.3);
-  color: #4caf50;
+  background: rgba(76, 175, 80, 0.26);
+  color: #75d881;
+  border-color: rgba(76, 175, 80, 0.4);
 }
 
 .detail-action-btn.send {
-  background: rgba(244, 67, 54, 0.3);
-  color: #f44336;
+  background: rgba(244, 67, 54, 0.24);
+  color: #ff7b70;
+  border-color: rgba(244, 67, 54, 0.36);
+}
+
+.detail-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+}
+
+.detail-action-btn:disabled:hover {
+  transform: none;
+  filter: none;
+}
+
+.detail-send-hint {
+  margin: -4px 0 14px;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .detail-info-card {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border-radius: 18px;
   padding: 16px;
   margin-bottom: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow: 0 8px 18px rgba(5, 9, 31, 0.25);
 }
 
 .detail-info-card h3 {
   margin: 0 0 12px;
-  font-size: 1rem;
+  font-size: 1.02rem;
 }
 
 .detail-row {
@@ -110,18 +158,20 @@
 .timelock-box {
   margin-top: 10px;
   background: rgba(156, 39, 176, 0.2);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px;
   font-size: 0.8rem;
   display: grid;
   gap: 6px;
+  border: 1px solid rgba(156, 39, 176, 0.3);
 }
 
 .tx-item {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(7, 12, 32, 0.42);
   border-radius: 10px;
   padding: 10px;
   margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .tx-main-row,
@@ -143,11 +193,11 @@
 }
 
 .tx-type.in {
-  color: #4caf50;
+  color: #70d17c;
 }
 
 .tx-type.out {
-  color: #f44336;
+  color: #ff7b70;
 }
 
 .tx-amount {
@@ -167,10 +217,11 @@
 }
 
 .address-audit-item {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(7, 12, 32, 0.42);
   border-radius: 10px;
   padding: 10px;
   margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .address-audit-head {

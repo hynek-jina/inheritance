@@ -7,9 +7,64 @@ import type {
   Account,
   AccountAddressAuditEntry,
   InheritanceAccountDetails,
+  SpendingConditions,
   StandardAccountDetails,
 } from "../types";
 import "./AccountDetailPage.css";
+
+function pluralizeBlocks(blocks: number): string {
+  if (blocks === 1) {
+    return "blok";
+  }
+
+  if (blocks >= 2 && blocks <= 4) {
+    return "bloky";
+  }
+
+  return "bloků";
+}
+
+function getInheritanceSendHint(
+  role: "user" | "heir",
+  blocksSinceFunding: number,
+  conditions: SpendingConditions,
+): {
+  disabled: boolean;
+  reason: string;
+} {
+  const blocksToMultisig = Math.max(
+    0,
+    conditions.multisigAfterBlocks - blocksSinceFunding,
+  );
+  const singleKeyThreshold =
+    role === "user"
+      ? conditions.userOnlyAfterBlocks
+      : conditions.heirOnlyAfterBlocks;
+  const blocksToSingleKey = Math.max(
+    0,
+    singleKeyThreshold - blocksSinceFunding,
+  );
+
+  if (blocksToSingleKey === 0) {
+    return {
+      disabled: false,
+      reason: "Odeslání je dostupné i samostatně.",
+    };
+  }
+
+  if (blocksToMultisig > 0) {
+    const cosignerLabel = role === "user" ? "dědicem" : "uživatelem";
+    return {
+      disabled: true,
+      reason: `Za ${blocksToMultisig} ${pluralizeBlocks(blocksToMultisig)} s ${cosignerLabel}.`,
+    };
+  }
+
+  return {
+    disabled: false,
+    reason: `Společné odeslání je možné hned. Za ${blocksToSingleKey} ${pluralizeBlocks(blocksToSingleKey)} půjde odeslat samostatně.`,
+  };
+}
 
 interface AccountDetailPageProps {
   account: Account;
@@ -75,6 +130,15 @@ export function AccountDetailPage({
       ? (standardDetails?.changeAddresses ?? [])
       : (inheritanceDetails?.changeAddresses ?? []);
 
+  const inheritanceSendHint =
+    account.type === "inheritance" && inheritanceDetails
+      ? getInheritanceSendHint(
+          inheritanceDetails.localRole,
+          account.inheritanceStatus?.blocksSinceFunding || 0,
+          inheritanceDetails.spendingConditions,
+        )
+      : null;
+
   const renderAddressAuditList = (
     title: string,
     addresses: AccountAddressAuditEntry[],
@@ -139,15 +203,30 @@ export function AccountDetailPage({
         >
           Přijmout prostředky
         </button>
-        {account.type === "standard" && (
+        {account.type === "standard" ? (
           <button
             className="detail-action-btn send"
             onClick={() => onSend(account)}
           >
             Odeslat
           </button>
+        ) : (
+          <button
+            className="detail-action-btn send"
+            onClick={() => onSend(account)}
+            disabled={inheritanceSendHint?.disabled ?? true}
+            title={
+              inheritanceSendHint?.reason || "Odeslání zatím není dostupné"
+            }
+          >
+            Odeslat
+          </button>
         )}
       </div>
+
+      {account.type === "inheritance" && inheritanceSendHint && (
+        <div className="detail-send-hint">{inheritanceSendHint.reason}</div>
+      )}
 
       <div className="detail-info-card">
         <h3>Informace o účtu</h3>

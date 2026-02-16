@@ -2,12 +2,13 @@ import { HDKey } from "@scure/bip32";
 import * as bitcoin from "bitcoinjs-lib";
 import { Buffer } from "buffer";
 import * as ecc from "tiny-secp256k1";
-import { TAPROOT_PATH, TESTNET_NETWORK } from "../constants";
+import { NETWORK_CONFIG, TAPROOT_PATH } from "../constants";
 import {
   recoverMasterSecret,
   generateMnemonic as slip39GenerateMnemonic,
   validateMnemonic,
 } from "./slip39-full";
+import { loadActiveNetwork } from "./storage";
 
 bitcoin.initEccLib(ecc);
 
@@ -16,12 +17,24 @@ const MAINNET_BIP32 = {
   public: 0x0488b21e,
 };
 
+export function getActiveBitcoinNetwork(): bitcoin.Network {
+  const network = loadActiveNetwork();
+  return NETWORK_CONFIG[network].bitcoinNetwork as bitcoin.Network;
+}
+
+function getActiveBip32Versions(): { private: number; public: number } {
+  const network = getActiveBitcoinNetwork();
+  return {
+    private: network.bip32.private,
+    public: network.bip32.public,
+  };
+}
+
 function parseExtendedKey(extendedKey: string): HDKey {
+  const activeBip32 = getActiveBip32Versions();
+
   if (extendedKey.startsWith("tpub") || extendedKey.startsWith("tprv")) {
-    return HDKey.fromExtendedKey(extendedKey, {
-      private: TESTNET_NETWORK.bip32.private,
-      public: TESTNET_NETWORK.bip32.public,
-    });
+    return HDKey.fromExtendedKey(extendedKey, activeBip32);
   }
 
   if (extendedKey.startsWith("xpub") || extendedKey.startsWith("xprv")) {
@@ -29,10 +42,7 @@ function parseExtendedKey(extendedKey: string): HDKey {
   }
 
   try {
-    return HDKey.fromExtendedKey(extendedKey, {
-      private: TESTNET_NETWORK.bip32.private,
-      public: TESTNET_NETWORK.bip32.public,
-    });
+    return HDKey.fromExtendedKey(extendedKey, activeBip32);
   } catch {
     return HDKey.fromExtendedKey(extendedKey, MAINNET_BIP32);
   }
@@ -52,10 +62,7 @@ export async function getMasterKeyFromMnemonic(
   mnemonic: string,
 ): Promise<HDKey> {
   const masterSecret = await recoverMasterSecret(mnemonic);
-  return HDKey.fromMasterSeed(masterSecret, {
-    private: TESTNET_NETWORK.bip32.private,
-    public: TESTNET_NETWORK.bip32.public,
-  });
+  return HDKey.fromMasterSeed(masterSecret, getActiveBip32Versions());
 }
 
 export function deriveTaprootAddress(
@@ -76,7 +83,7 @@ export function deriveTaprootAddress(
   // Create Taproot output
   const payment = bitcoin.payments.p2tr({
     internalPubkey: internalKey.slice(1, 33),
-    network: TESTNET_NETWORK,
+    network: getActiveBitcoinNetwork(),
   });
 
   return payment.address!;
@@ -118,6 +125,26 @@ export function deriveInheritanceAddressFromXpubs(
   addressIndex: number,
   change: 0 | 1 = 0,
 ): string {
+  const descriptor = deriveInheritanceDescriptorFromXpubs(
+    userAccountXpub,
+    heirAccountXpub,
+    addressIndex,
+    change,
+  );
+
+  return descriptor.address;
+}
+
+export function deriveInheritanceDescriptorFromXpubs(
+  userAccountXpub: string,
+  heirAccountXpub: string,
+  addressIndex: number,
+  change: 0 | 1 = 0,
+): {
+  address: string;
+  output: Buffer;
+  witnessScript: Buffer;
+} {
   const userAccountKey = parseExtendedKey(userAccountXpub);
   const heirAccountKey = parseExtendedKey(heirAccountXpub);
 
@@ -138,19 +165,27 @@ export function deriveInheritanceAddressFromXpubs(
       Buffer.from(userChild.publicKey),
       Buffer.from(heirChild.publicKey),
     ].sort(Buffer.compare),
-    network: TESTNET_NETWORK,
+    network: getActiveBitcoinNetwork(),
   });
 
   const payment = bitcoin.payments.p2wsh({
     redeem: multisig,
-    network: TESTNET_NETWORK,
+    network: getActiveBitcoinNetwork(),
   });
 
   if (!payment.address) {
     throw new Error("Failed to derive inheritance address");
   }
 
-  return payment.address;
+  if (!payment.output || !multisig.output) {
+    throw new Error("Failed to derive inheritance script");
+  }
+
+  return {
+    address: payment.address,
+    output: Buffer.from(payment.output),
+    witnessScript: Buffer.from(multisig.output),
+  };
 }
 
 export function normalizeExtendedPublicKey(extendedKey: string): string {

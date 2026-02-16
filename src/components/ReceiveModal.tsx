@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
-import type { Account } from '../types';
-import { getNextUnusedAddress, generateNewAddress } from '../services/wallet';
-import './Modal.css';
+import { QRCodeSVG } from "qrcode.react";
+import { useEffect, useState } from "react";
+import { NETWORK_CONFIG } from "../constants";
+import { generateNewAddress, getNextUnusedAddress } from "../services/wallet";
+import type { Account } from "../types";
+import { loadActiveNetwork } from "../utils/storage";
+import "./Modal.css";
 
 interface ReceiveModalProps {
   account: Account;
@@ -10,9 +12,14 @@ interface ReceiveModalProps {
   onClose: () => void;
 }
 
-export function ReceiveModal({ account, mnemonic, onClose }: ReceiveModalProps) {
-  const [address, setAddress] = useState<string>('');
+export function ReceiveModal({
+  account,
+  mnemonic,
+  onClose,
+}: ReceiveModalProps) {
+  const [address, setAddress] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  const network = loadActiveNetwork();
 
   useEffect(() => {
     const loadAddress = async () => {
@@ -40,7 +47,9 @@ export function ReceiveModal({ account, mnemonic, onClose }: ReceiveModalProps) 
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Přijmout Bitcoin</h2>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={onClose}>
+            ×
+          </button>
         </div>
 
         <div className="modal-body">
@@ -50,7 +59,7 @@ export function ReceiveModal({ account, mnemonic, onClose }: ReceiveModalProps) 
 
           <div className="qr-container">
             {address ? (
-              <QRCodeSVG 
+              <QRCodeSVG
                 value={address}
                 size={200}
                 level="M"
@@ -64,16 +73,16 @@ export function ReceiveModal({ account, mnemonic, onClose }: ReceiveModalProps) 
 
           <div className="address-box">
             <code className="address-text">{address}</code>
-            <button 
+            <button
               onClick={handleCopy}
-              className={`copy-btn ${copied ? 'copied' : ''}`}
+              className={`copy-btn ${copied ? "copied" : ""}`}
             >
-              {copied ? '✓ Zkopírováno' : 'Kopírovat'}
+              {copied ? "✓ Zkopírováno" : "Kopírovat"}
             </button>
           </div>
 
           <div className="network-badge">
-            Testnet adresy začínají na "tb1..."
+            {NETWORK_CONFIG[network].label} adresy začínají na "tb1..."
           </div>
         </div>
       </div>

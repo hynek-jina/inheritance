@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import type { AppNetwork } from "../constants";
+import { NETWORK_CONFIG } from "../constants";
 import { getWalletFingerprint, updateAccountBalance } from "../services/wallet";
 import type { Account } from "../types";
 import { loadAccounts } from "../utils/storage";
@@ -11,10 +13,17 @@ import { SendModal } from "./SendModal";
 
 interface AccountsProps {
   mnemonic: string;
+  network: AppNetwork;
+  onNetworkChange: (network: AppNetwork) => void;
   onLogout: () => void;
 }
 
-export function Accounts({ mnemonic, onLogout }: AccountsProps) {
+export function Accounts({
+  mnemonic,
+  network,
+  onNetworkChange,
+  onLogout,
+}: AccountsProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [detailAccount, setDetailAccount] = useState<Account | null>(null);
   const [modalAccount, setModalAccount] = useState<Account | null>(null);
@@ -51,7 +60,7 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
     return () => {
       window.clearTimeout(timerId);
     };
-  }, [loadAccountsData]);
+  }, [network, loadAccountsData]);
 
   const totalBalance = accounts.reduce((sum, acc) => sum + acc.balance, 0);
 
@@ -72,7 +81,12 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
 
   return (
     <div className="accounts-container">
-      <MenuBar mnemonic={mnemonic} onLogout={onLogout} />
+      <MenuBar
+        mnemonic={mnemonic}
+        network={network}
+        onNetworkChange={onNetworkChange}
+        onLogout={onLogout}
+      />
 
       {detailAccount ? (
         <AccountDetailPage
@@ -107,7 +121,9 @@ export function Accounts({ mnemonic, onLogout }: AccountsProps) {
               {totalBalance.toLocaleString("cs-CZ")}{" "}
               <span className="btc-label">sats</span>
             </div>
-            <div className="balance-testnet">Testnet</div>
+            <div className="balance-testnet">
+              {NETWORK_CONFIG[network].label}
+            </div>
             {walletFingerprint && (
               <div className="wallet-fingerprint">
                 Master fingerprint: {walletFingerprint}

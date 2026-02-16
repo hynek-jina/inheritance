@@ -1,11 +1,7 @@
 import * as bitcoin from "bitcoinjs-lib";
 import { Buffer } from "buffer";
 import * as ecc from "tiny-secp256k1";
-import {
-  DEFAULT_INHERITANCE_CONDITIONS,
-  TAPROOT_PATH,
-  TESTNET_NETWORK,
-} from "../constants";
+import { DEFAULT_INHERITANCE_CONDITIONS, TAPROOT_PATH } from "../constants";
 import type {
   Account,
   AccountAddressAuditEntry,
@@ -20,14 +16,18 @@ import type {
 import {
   broadcastTransaction,
   getAddressBalance,
+  getAddressFirstFundingBlockHeight,
   getAddressFundingStats,
   getAddressUTXOs,
+  getCurrentBlockHeight,
   getTransactions,
 } from "../utils/api";
 import {
   deriveInheritanceAddressFromXpubs,
+  deriveInheritanceDescriptorFromXpubs,
   deriveTaprootAddress,
   generateMnemonic,
+  getActiveBitcoinNetwork,
   getMasterKeyFromMnemonic,
   getPrivateKeyForAddress,
   normalizeExtendedPublicKey,
@@ -176,9 +176,15 @@ function resolveInheritanceParticipants(
 async function getAccountTransactions(
   account: Account,
 ): Promise<Transaction[]> {
+  const accountAddressSet = new Set(
+    account.derivedAddresses.map((derivedAddress) => derivedAddress.address),
+  );
   const txById = new Map<string, Transaction>();
   for (const derivedAddress of account.derivedAddresses) {
-    const transactions = await getTransactions(derivedAddress.address);
+    const transactions = await getTransactions(
+      derivedAddress.address,
+      accountAddressSet,
+    );
     for (const tx of transactions) {
       if (!txById.has(tx.txid)) {
         txById.set(tx.txid, tx);
@@ -605,7 +611,7 @@ export async function updateAccountBalance(
 
   // Update inheritance status if needed
   if (account.type === "inheritance" && account.spendingConditions) {
-    updatedAccount.inheritanceStatus = calculateInheritanceStatus(
+    updatedAccount.inheritanceStatus = await calculateInheritanceStatus(
       account.spendingConditions,
       updatedAddresses,
     );
@@ -618,15 +624,33 @@ export async function updateAccountBalance(
   return updatedAccount;
 }
 
-function calculateInheritanceStatus(
+async function calculateInheritanceStatus(
   conditions: SpendingConditions,
   addresses: DerivedAddress[],
-): Account["inheritanceStatus"] {
-  // Calculate blocks since first funding
-  const fundedAddresses = addresses.filter(
-    (a) => a.used && (a.balance || 0) > 0,
-  );
-  const blocksSinceFunding = fundedAddresses.length > 0 ? 0 : 0; // This would need to be tracked from blockchain
+): Promise<Account["inheritanceStatus"]> {
+  const fundedAddresses = addresses.filter((address) => address.used);
+
+  let blocksSinceFunding = 0;
+  if (fundedAddresses.length > 0) {
+    const [tipHeight, fundingHeights] = await Promise.all([
+      getCurrentBlockHeight(),
+      Promise.all(
+        fundedAddresses.map((address) =>
+          getAddressFirstFundingBlockHeight(address.address),
+        ),
+      ),
+    ]);
+
+    const validFundingHeights = fundingHeights.filter(
+      (height): height is number => height !== null,
+    );
+    const firstFundingHeight =
+      validFundingHeights.length > 0 ? Math.min(...validFundingHeights) : null;
+
+    if (tipHeight !== null && firstFundingHeight !== null) {
+      blocksSinceFunding = Math.max(0, tipHeight - firstFundingHeight);
+    }
+  }
 
   return {
     blocksSinceFunding,
@@ -712,12 +736,33 @@ type TaprootSigner = {
   signSchnorr: (hash: Buffer) => Buffer;
 };
 
+type EcdsaSigner = {
+  publicKey: Buffer;
+  sign: (hash: Buffer) => Buffer;
+};
+
+export interface InheritancePartialTransactionResult {
+  psbt: string;
+  fee: number;
+  changeAmount: number;
+  changeAddress: string;
+}
+
 function estimateTaprootFee(
   inputCount: number,
   outputCount: number,
   feeRate: number,
 ): number {
   const estimatedVbytes = 10 + inputCount * 58 + outputCount * 43;
+  return Math.ceil(estimatedVbytes * feeRate);
+}
+
+function estimateInheritanceMultisigFee(
+  inputCount: number,
+  outputCount: number,
+  feeRate: number,
+): number {
+  const estimatedVbytes = 12 + inputCount * 110 + outputCount * 43;
   return Math.ceil(estimatedVbytes * feeRate);
 }
 
@@ -763,6 +808,326 @@ function createTweakedSigner(privateKey: Buffer): TaprootSigner {
   };
 }
 
+function createEcdsaSigner(privateKey: Buffer): EcdsaSigner {
+  const key = Buffer.from(privateKey);
+  const publicKey = ecc.pointFromScalar(key, true);
+  if (!publicKey) {
+    throw new Error("Invalid private key");
+  }
+
+  return {
+    publicKey: Buffer.from(publicKey),
+    sign: (hash: Buffer): Buffer => Buffer.from(ecc.sign(hash, key)),
+  };
+}
+
+function getPrimaryStandardChangeAddress(
+  accounts: Account[],
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>,
+): string {
+  const primaryAccount = accounts.find((item) => item.type === "standard");
+  if (!primaryAccount) {
+    throw new Error("Pro change je potřeba alespoň jeden standardní účet");
+  }
+
+  const primaryIndex = accounts.findIndex(
+    (item) => item.id === primaryAccount.id,
+  );
+  if (primaryIndex === -1) {
+    throw new Error("Hlavní účet nebyl nalezen");
+  }
+
+  const usedReceiveIndexes = primaryAccount.derivedAddresses
+    .filter((address) => !address.change)
+    .map((address) => address.index);
+  const maxReceiveIndex =
+    usedReceiveIndexes.length > 0 ? Math.max(...usedReceiveIndexes) : -1;
+  const nextReceiveIndex = Math.max(
+    primaryAccount.addressIndex,
+    maxReceiveIndex + 1,
+  );
+
+  const changeAddress = deriveTaprootAddress(
+    masterKey,
+    primaryIndex,
+    nextReceiveIndex,
+    0,
+  );
+
+  const existing = primaryAccount.derivedAddresses.find(
+    (address) => address.address === changeAddress,
+  );
+  if (!existing) {
+    primaryAccount.derivedAddresses.push({
+      index: nextReceiveIndex,
+      address: changeAddress,
+      change: false,
+      used: true,
+      balance: 0,
+    });
+  } else {
+    existing.used = true;
+  }
+
+  primaryAccount.addressIndex = Math.max(
+    primaryAccount.addressIndex,
+    nextReceiveIndex + 1,
+  );
+
+  return changeAddress;
+}
+
+function getInheritanceLocalBasePath(
+  account: Account,
+  identityDerivationPath: string,
+): string {
+  return account.identityDerivationPath || identityDerivationPath;
+}
+
+function getTxInputTxid(psbt: bitcoin.Psbt, inputIndex: number): string {
+  return Buffer.from(psbt.txInputs[inputIndex].hash).reverse().toString("hex");
+}
+
+export async function createInheritancePartiallySignedTransaction(
+  mnemonic: string,
+  account: Account,
+  recipientAddress: string,
+  amountSats: number,
+  feeRate: number,
+): Promise<InheritancePartialTransactionResult> {
+  if (account.type !== "inheritance") {
+    throw new Error("Tato funkce je pouze pro dědický účet");
+  }
+
+  const network = getActiveBitcoinNetwork();
+  const accounts = loadAccounts();
+  const accountIndex = accounts.findIndex((item) => item.id === account.id);
+  if (accountIndex === -1) {
+    throw new Error("Účet nebyl nalezen");
+  }
+
+  const accountRef = accounts[accountIndex];
+  const status = accountRef.inheritanceStatus;
+  if (!status || !status.requiresMultisig) {
+    throw new Error("Společné utrácení zatím není dostupné");
+  }
+
+  if (!Number.isInteger(amountSats) || amountSats <= 0) {
+    throw new Error("Neplatná částka v satech");
+  }
+
+  if (!Number.isFinite(feeRate) || feeRate <= 0) {
+    throw new Error("Neplatný fee rate");
+  }
+
+  try {
+    bitcoin.address.toOutputScript(recipientAddress, network);
+  } catch {
+    throw new Error("Neplatná adresa příjemce pro aktivní síť");
+  }
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const identity = deriveLocalIdentity(masterKey);
+  const participants = resolveInheritanceParticipants(accountRef, identity);
+
+  if (!participants.counterpartyXpub) {
+    throw new Error("Chybí xpub protistrany");
+  }
+
+  const allUtxos: SpendableUtxo[] = [];
+  for (const derivedAddress of accountRef.derivedAddresses) {
+    const utxos = await getAddressUTXOs(derivedAddress.address);
+    const change = derivedAddress.change ? 1 : 0;
+    for (const utxo of utxos) {
+      allUtxos.push({
+        txid: utxo.txid,
+        vout: utxo.vout,
+        value: utxo.value,
+        addressIndex: derivedAddress.index,
+        change,
+      });
+    }
+  }
+
+  if (allUtxos.length === 0) {
+    throw new Error("Žádné UTXO k utracení");
+  }
+
+  allUtxos.sort((a, b) => b.value - a.value);
+
+  const selected: SpendableUtxo[] = [];
+  let selectedValue = 0;
+  const dustLimit = 330;
+
+  for (const utxo of allUtxos) {
+    selected.push(utxo);
+    selectedValue += utxo.value;
+
+    const feeWithChange = estimateInheritanceMultisigFee(
+      selected.length,
+      2,
+      feeRate,
+    );
+    if (selectedValue >= amountSats + feeWithChange) {
+      break;
+    }
+
+    const feeNoChange = estimateInheritanceMultisigFee(
+      selected.length,
+      1,
+      feeRate,
+    );
+    if (selectedValue >= amountSats + feeNoChange) {
+      break;
+    }
+  }
+
+  let fee = estimateInheritanceMultisigFee(selected.length, 2, feeRate);
+  let change = selectedValue - amountSats - fee;
+  const addChangeOutput = change >= dustLimit;
+
+  if (!addChangeOutput) {
+    fee = estimateInheritanceMultisigFee(selected.length, 1, feeRate);
+    change = selectedValue - amountSats - fee;
+  }
+
+  if (change < 0) {
+    throw new Error("Nedostatek prostředků včetně poplatku");
+  }
+
+  const psbt = new bitcoin.Psbt({ network });
+
+  for (const utxo of selected) {
+    const descriptor = deriveInheritanceDescriptorFromXpubs(
+      participants.userXpub,
+      participants.heirXpub,
+      utxo.addressIndex,
+      utxo.change,
+    );
+
+    psbt.addInput({
+      hash: utxo.txid,
+      index: utxo.vout,
+      witnessUtxo: {
+        script: descriptor.output,
+        value: BigInt(utxo.value),
+      },
+      witnessScript: descriptor.witnessScript,
+    });
+  }
+
+  psbt.addOutput({
+    address: recipientAddress,
+    value: BigInt(amountSats),
+  });
+
+  let changeAddress = "";
+  if (addChangeOutput && change > 0) {
+    changeAddress = getPrimaryStandardChangeAddress(accounts, masterKey);
+    psbt.addOutput({
+      address: changeAddress,
+      value: BigInt(change),
+    });
+  }
+
+  const localBasePath = getInheritanceLocalBasePath(
+    accountRef,
+    identity.derivationPath,
+  );
+  for (let index = 0; index < selected.length; index++) {
+    const utxo = selected[index];
+    const child = masterKey.derive(
+      `${localBasePath}/${utxo.change}/${utxo.addressIndex}`,
+    );
+    if (!child.privateKey) {
+      throw new Error("Nepodařilo se odvodit privátní klíč pro podpis");
+    }
+
+    const signer = createEcdsaSigner(Buffer.from(child.privateKey));
+    psbt.signInput(index, signer);
+  }
+
+  saveAccounts(accounts);
+
+  return {
+    psbt: psbt.toBase64(),
+    fee,
+    changeAmount: Math.max(change, 0),
+    changeAddress,
+  };
+}
+
+export async function completeInheritanceTransactionFromPsbt(
+  mnemonic: string,
+  account: Account,
+  psbtBase64: string,
+): Promise<string> {
+  if (account.type !== "inheritance") {
+    throw new Error("Tato funkce je pouze pro dědický účet");
+  }
+
+  const network = getActiveBitcoinNetwork();
+  const accounts = loadAccounts();
+  const accountIndex = accounts.findIndex((item) => item.id === account.id);
+  if (accountIndex === -1) {
+    throw new Error("Účet nebyl nalezen");
+  }
+
+  const accountRef = accounts[accountIndex];
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const identity = deriveLocalIdentity(masterKey);
+  const localBasePath = getInheritanceLocalBasePath(
+    accountRef,
+    identity.derivationPath,
+  );
+
+  const psbt = bitcoin.Psbt.fromBase64(psbtBase64.trim(), { network });
+
+  const utxoLookup = new Map<string, { index: number; change: 0 | 1 }>();
+  for (const derivedAddress of accountRef.derivedAddresses) {
+    const utxos = await getAddressUTXOs(derivedAddress.address);
+    const change = derivedAddress.change ? 1 : 0;
+    for (const utxo of utxos) {
+      utxoLookup.set(`${utxo.txid}:${utxo.vout}`, {
+        index: derivedAddress.index,
+        change,
+      });
+    }
+  }
+
+  if (utxoLookup.size === 0) {
+    throw new Error("Žádná dostupná UTXO pro dopodepsání");
+  }
+
+  for (let inputIndex = 0; inputIndex < psbt.txInputs.length; inputIndex++) {
+    const txid = getTxInputTxid(psbt, inputIndex);
+    const vout = psbt.txInputs[inputIndex].index;
+    const source = utxoLookup.get(`${txid}:${vout}`);
+
+    if (!source) {
+      throw new Error(
+        "PSBT obsahuje vstup, který nepatří tomuto dědickému účtu",
+      );
+    }
+
+    const child = masterKey.derive(
+      `${localBasePath}/${source.change}/${source.index}`,
+    );
+    if (!child.privateKey) {
+      throw new Error("Nepodařilo se odvodit privátní klíč pro dopodepsání");
+    }
+
+    const signer = createEcdsaSigner(Buffer.from(child.privateKey));
+    psbt.signInput(inputIndex, signer);
+  }
+
+  psbt.finalizeAllInputs();
+  const txHex = psbt.extractTransaction().toHex();
+  const txid = await broadcastTransaction(txHex);
+
+  return txid;
+}
+
 export async function sendBitcoin(
   mnemonic: string,
   account: Account,
@@ -776,7 +1141,7 @@ export async function sendBitcoin(
     );
   }
 
-  const network = TESTNET_NETWORK as bitcoin.Network;
+  const network = getActiveBitcoinNetwork();
   const accounts = loadAccounts();
   const accountIndex = accounts.findIndex((a: Account) => a.id === account.id);
   if (accountIndex === -1) {
@@ -794,7 +1159,7 @@ export async function sendBitcoin(
   try {
     bitcoin.address.toOutputScript(recipientAddress, network);
   } catch {
-    throw new Error("Neplatná testnet adresa příjemce");
+    throw new Error("Neplatná adresa příjemce pro aktivní síť");
   }
 
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);

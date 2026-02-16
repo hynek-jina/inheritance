@@ -1,5 +1,6 @@
-// Testnet constants
-export const TESTNET_NETWORK = {
+export type AppNetwork = "testnet" | "signet";
+
+const BASE_TEST_LIKE_NETWORK = {
   messagePrefix: "\u0018Bitcoin Signed Message:\n",
   bech32: "tb",
   bip32: {
@@ -11,8 +12,22 @@ export const TESTNET_NETWORK = {
   wif: 0xef,
 };
 
-// API endpoints
-export const MEMPOOL_API = "https://mempool.space/testnet4/api";
+export const NETWORK_CONFIG = {
+  testnet: {
+    label: "Testnet",
+    mempoolApi: "https://mempool.space/testnet4/api",
+    bitcoinNetwork: BASE_TEST_LIKE_NETWORK,
+  },
+  signet: {
+    label: "Signet",
+    mempoolApi: "https://mempool.space/signet/api",
+    bitcoinNetwork: BASE_TEST_LIKE_NETWORK,
+  },
+} as const;
+
+export const DEFAULT_NETWORK: AppNetwork = "testnet";
+
+export const TESTNET_NETWORK = NETWORK_CONFIG.testnet.bitcoinNetwork;
 
 // Default derivation path root for Taproot (BIP-86 testnet)
 export const TAPROOT_PATH = "m/86'/1'";
@@ -30,4 +45,5 @@ export const STORAGE_KEYS = {
   WALLET: "btc_wallet",
   ACCOUNTS: "btc_accounts",
   TRANSACTIONS: "btc_transactions",
+  NETWORK: "btc_network",
 };

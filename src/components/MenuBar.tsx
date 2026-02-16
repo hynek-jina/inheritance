@@ -1,13 +1,22 @@
-import { useState } from 'react';
-import { clearWallet } from '../utils/storage';
-import './MenuBar.css';
+import { useState } from "react";
+import type { AppNetwork } from "../constants";
+import { NETWORK_CONFIG } from "../constants";
+import { clearWallet } from "../utils/storage";
+import "./MenuBar.css";
 
 interface MenuBarProps {
   mnemonic: string;
+  network: AppNetwork;
+  onNetworkChange: (network: AppNetwork) => void;
   onLogout: () => void;
 }
 
-export function MenuBar({ mnemonic, onLogout }: MenuBarProps) {
+export function MenuBar({
+  mnemonic,
+  network,
+  onNetworkChange,
+  onLogout,
+}: MenuBarProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -23,15 +32,19 @@ export function MenuBar({ mnemonic, onLogout }: MenuBarProps) {
     onLogout();
   };
 
+  const handleToggleNetwork = () => {
+    const nextNetwork: AppNetwork =
+      network === "testnet" ? "signet" : "testnet";
+    onNetworkChange(nextNetwork);
+    setShowMenu(false);
+  };
+
   return (
     <div className="menu-bar">
-      <div className="menu-title">Bitcoin Testnet</div>
-      
+      <div className="menu-title">Bitcoin {NETWORK_CONFIG[network].label}</div>
+
       <div className="menu-container">
-        <button 
-          className="menu-button"
-          onClick={() => setShowMenu(!showMenu)}
-        >
+        <button className="menu-button" onClick={() => setShowMenu(!showMenu)}>
           <span></span>
           <span></span>
           <span></span>
@@ -41,9 +54,16 @@ export function MenuBar({ mnemonic, onLogout }: MenuBarProps) {
           <div className="menu-dropdown">
             <button onClick={handleCopySeed} className="menu-item">
               <span className="menu-icon">📋</span>
-              {copied ? 'Zkopírováno!' : 'Zkopírovat seed'}
+              {copied ? "Zkopírováno!" : "Zkopírovat seed"}
             </button>
-            <button onClick={handleLogout} className="menu-item menu-item-danger">
+            <button onClick={handleToggleNetwork} className="menu-item">
+              <span className="menu-icon">🌐</span>
+              Přepnout na {network === "testnet" ? "Signet" : "Testnet"}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="menu-item menu-item-danger"
+            >
               <span className="menu-icon">🚪</span>
               Odhlásit se
             </button>

@@ -1,5 +1,6 @@
-import { MEMPOOL_API } from "../constants";
+import { NETWORK_CONFIG } from "../constants";
 import type { Transaction, UTXO } from "../types";
+import { loadActiveNetwork } from "./storage";
 
 interface AddressStats {
   funded_txo_sum: number;
@@ -41,6 +42,62 @@ interface AddressTx {
   };
 }
 
+function getMempoolApiBase(): string {
+  const network = loadActiveNetwork();
+  return NETWORK_CONFIG[network].mempoolApi;
+}
+
+export async function getCurrentBlockHeight(): Promise<number | null> {
+  try {
+    const response = await fetch(`${getMempoolApiBase()}/blocks/tip/height`);
+    if (!response.ok) throw new Error("Failed to fetch tip height");
+
+    const text = await response.text();
+    const tipHeight = Number.parseInt(text, 10);
+    return Number.isFinite(tipHeight) ? tipHeight : null;
+  } catch (error) {
+    console.error("Error fetching tip height:", error);
+    return null;
+  }
+}
+
+export async function getAddressFirstFundingBlockHeight(
+  address: string,
+): Promise<number | null> {
+  try {
+    const response = await fetch(
+      `${getMempoolApiBase()}/address/${address}/txs`,
+    );
+    if (!response.ok) throw new Error("Failed to fetch address txs");
+
+    const txs = (await response.json()) as AddressTx[];
+    let firstFundingHeight: number | null = null;
+
+    for (const tx of txs) {
+      const blockHeight = tx.status.block_height;
+      if (!tx.status.confirmed || !blockHeight) {
+        continue;
+      }
+
+      const fundedThisAddress = tx.vout.some(
+        (output) => output.scriptpubkey_address === address && output.value > 0,
+      );
+      if (!fundedThisAddress) {
+        continue;
+      }
+
+      if (firstFundingHeight === null || blockHeight < firstFundingHeight) {
+        firstFundingHeight = blockHeight;
+      }
+    }
+
+    return firstFundingHeight;
+  } catch (error) {
+    console.error("Error fetching first funding block:", error);
+    return null;
+  }
+}
+
 export async function getAddressBalance(address: string): Promise<number> {
   const stats = await getAddressFundingStats(address);
   return stats.balance;
@@ -50,7 +107,7 @@ export async function getAddressFundingStats(
   address: string,
 ): Promise<AddressFundingStats> {
   try {
-    const response = await fetch(`${MEMPOOL_API}/address/${address}`);
+    const response = await fetch(`${getMempoolApiBase()}/address/${address}`);
     if (!response.ok) throw new Error("Failed to fetch balance");
 
     const data = (await response.json()) as AddressResponse;
@@ -79,7 +136,9 @@ export async function getAddressFundingStats(
 
 export async function getAddressUTXOs(address: string): Promise<UTXO[]> {
   try {
-    const response = await fetch(`${MEMPOOL_API}/address/${address}/utxo`);
+    const response = await fetch(
+      `${getMempoolApiBase()}/address/${address}/utxo`,
+    );
     if (!response.ok) throw new Error("Failed to fetch UTXOs");
 
     return await response.json();
@@ -89,40 +148,55 @@ export async function getAddressUTXOs(address: string): Promise<UTXO[]> {
   }
 }
 
-export async function getTransactions(address: string): Promise<Transaction[]> {
+export async function getTransactions(
+  address: string,
+  accountAddresses?: Set<string>,
+): Promise<Transaction[]> {
   try {
-    const response = await fetch(`${MEMPOOL_API}/address/${address}/txs`);
+    const response = await fetch(
+      `${getMempoolApiBase()}/address/${address}/txs`,
+    );
     if (!response.ok) throw new Error("Failed to fetch transactions");
 
     const txs = (await response.json()) as AddressTx[];
 
-    return txs.map((tx) => {
-      const isIncoming = tx.vout.some(
-        (output) => output.scriptpubkey_address === address,
-      );
+    const ownAddresses = accountAddresses ?? new Set([address]);
 
-      let amount = 0;
-      if (isIncoming) {
-        amount = tx.vout
-          .filter((output) => output.scriptpubkey_address === address)
-          .reduce((sum, output) => sum + output.value, 0);
-      } else {
-        amount = tx.vin
-          .filter((input) => input.prevout?.scriptpubkey_address === address)
-          .reduce((sum, input) => sum + (input.prevout?.value || 0), 0);
-      }
+    return txs
+      .map((tx) => {
+        const sentFromOwn = tx.vin.reduce((sum, input) => {
+          const prevoutAddress = input.prevout?.scriptpubkey_address;
+          if (!prevoutAddress || !ownAddresses.has(prevoutAddress)) {
+            return sum;
+          }
+          return sum + (input.prevout?.value || 0);
+        }, 0);
 
-      return {
-        txid: tx.txid,
-        amount,
-        fee: tx.fee || 0,
-        timestamp: tx.status.block_time || Date.now() / 1000,
-        type: isIncoming ? "incoming" : "outgoing",
-        address: address,
-        confirmed: tx.status.confirmed,
-        confirmations: tx.status.confirmed ? tx.status.block_height || 0 : 0,
-      };
-    });
+        const receivedToOwn = tx.vout.reduce((sum, output) => {
+          const outputAddress = output.scriptpubkey_address;
+          if (!outputAddress || !ownAddresses.has(outputAddress)) {
+            return sum;
+          }
+          return sum + output.value;
+        }, 0);
+
+        const netFlow = receivedToOwn - sentFromOwn;
+        if (netFlow === 0) {
+          return null;
+        }
+
+        return {
+          txid: tx.txid,
+          amount: Math.abs(netFlow),
+          fee: tx.fee || 0,
+          timestamp: tx.status.block_time || Date.now() / 1000,
+          type: netFlow > 0 ? ("incoming" as const) : ("outgoing" as const),
+          address: address,
+          confirmed: tx.status.confirmed,
+          confirmations: tx.status.confirmed ? tx.status.block_height || 0 : 0,
+        };
+      })
+      .filter((tx): tx is Transaction => tx !== null);
   } catch (error) {
     console.error("Error fetching transactions:", error);
     return [];
@@ -135,7 +209,7 @@ export async function getFeeEstimates(): Promise<{
   hour: number;
 }> {
   try {
-    const response = await fetch(`${MEMPOOL_API}/fees/recommended`);
+    const response = await fetch(`${getMempoolApiBase()}/fees/recommended`);
     if (!response.ok) throw new Error("Failed to fetch fee estimates");
 
     const data = await response.json();
@@ -152,7 +226,7 @@ export async function getFeeEstimates(): Promise<{
 
 export async function broadcastTransaction(txHex: string): Promise<string> {
   try {
-    const response = await fetch(`${MEMPOOL_API}/tx`, {
+    const response = await fetch(`${getMempoolApiBase()}/tx`, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain",
