@@ -63,6 +63,10 @@
   margin-bottom: 14px;
 }
 
+.detail-action-row.single {
+  grid-template-columns: 1fr;
+}
+
 .detail-action-btn {
   border: none;
   border-radius: 14px;
@@ -88,10 +92,39 @@
   border-color: rgba(76, 175, 80, 0.4);
 }
 
+.detail-action-btn.receive.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
 .detail-action-btn.send {
   background: rgba(244, 67, 54, 0.24);
   color: #ff7b70;
   border-color: rgba(244, 67, 54, 0.36);
+}
+
+.detail-action-btn.activate {
+  background: rgba(247, 147, 26, 0.24);
+  color: #ffbf6b;
+  border-color: rgba(247, 147, 26, 0.38);
+}
+
+.detail-inline-message {
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+}
+
+.detail-inline-message.success {
+  background: rgba(76, 175, 80, 0.2);
+  color: #70d17c;
+}
+
+.detail-inline-message.error {
+  background: rgba(244, 67, 54, 0.2);
+  color: #ff7b70;
 }
 
 .detail-action-btn:disabled {
@@ -128,6 +161,25 @@
 .detail-info-card h3 {
   margin: 0 0 12px;
   font-size: 1.02rem;
+}
+
+.detail-collapse-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.detail-collapse-btn h3 {
+  margin: 0;
 }
 
 .detail-row {

@@ -38,6 +38,41 @@ import { loadAccounts, saveAccounts, saveWallet } from "../utils/storage";
 bitcoin.initEccLib(ecc);
 
 const ADDRESS_AUDIT_LIMIT = 10;
+const HARDCODED_SERVER_MNEMONIC =
+  "criminal senior academic academic alto sled saver seafood screw beam gather stilt clock flavor pencil divorce civil loan training ranked";
+
+let serverIdentityPromise: Promise<{
+  fingerprint: string;
+  xpub: string;
+  derivationPath: string;
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>;
+}> | null = null;
+
+async function getServerIdentity(): Promise<{
+  fingerprint: string;
+  xpub: string;
+  derivationPath: string;
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>;
+}> {
+  if (!serverIdentityPromise) {
+    serverIdentityPromise = getMasterKeyFromMnemonic(HARDCODED_SERVER_MNEMONIC)
+      .then((masterKey) => {
+        const identity = deriveLocalIdentity(masterKey);
+        return {
+          fingerprint: identity.fingerprint,
+          xpub: identity.xpub,
+          derivationPath: identity.derivationPath,
+          masterKey,
+        };
+      })
+      .catch((error) => {
+        serverIdentityPromise = null;
+        throw error;
+      });
+  }
+
+  return serverIdentityPromise;
+}
 
 function formatFingerprint(fingerprint: number): string {
   return (fingerprint >>> 0).toString(16).padStart(8, "0");
@@ -73,14 +108,27 @@ function deterministicInheritanceId(
   const seed = [`${fingerprintA}:${xpubA}`, `${fingerprintB}:${xpubB}`]
     .sort()
     .join("|");
+  return `inheritance-${hashStringToUint32(seed).toString(16).padStart(8, "0")}`;
+}
 
+function hashStringToUint32(seed: string): number {
   let hash = 2166136261;
   for (let index = 0; index < seed.length; index++) {
     hash ^= seed.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
 
-  return `inheritance-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+  return hash >>> 0;
+}
+
+function deterministicBranchFromId(accountId: string): number {
+  return (hashStringToUint32(accountId) % 2147483646) + 1;
+}
+
+function getFundingBranch(
+  account: Pick<Account, "id" | "fundingBranch">,
+): number {
+  return account.fundingBranch ?? deterministicBranchFromId(account.id);
 }
 
 export async function getWalletFingerprint(mnemonic: string): Promise<string> {
@@ -171,6 +219,52 @@ function resolveInheritanceParticipants(
     heirFingerprint,
     heirXpub,
   };
+}
+
+function resolveInheritanceParticipantsFromInputs(
+  localRole: "user" | "heir",
+  localFingerprint: string,
+  localXpub: string,
+  counterpartyFingerprint: string,
+  counterpartyXpub: string,
+): {
+  userFingerprint: string;
+  userXpub: string;
+  heirFingerprint: string;
+  heirXpub: string;
+} {
+  return {
+    userFingerprint:
+      localRole === "user" ? localFingerprint : counterpartyFingerprint,
+    userXpub: localRole === "user" ? localXpub : counterpartyXpub,
+    heirFingerprint:
+      localRole === "heir" ? localFingerprint : counterpartyFingerprint,
+    heirXpub: localRole === "heir" ? localXpub : counterpartyXpub,
+  };
+}
+
+function isFundingAddress(address: DerivedAddress): boolean {
+  return address.role === "funding";
+}
+
+function isActiveInheritanceAddress(address: DerivedAddress): boolean {
+  return address.role !== "funding";
+}
+
+export function isInheritanceAccountActivated(account: Account): boolean {
+  if (account.type !== "inheritance") {
+    return false;
+  }
+
+  if (account.inheritanceActivated) {
+    return true;
+  }
+
+  return account.derivedAddresses.some(
+    (address) =>
+      (address.role === "active" || address.role === undefined) &&
+      (address.used || (address.balance || 0) > 0),
+  );
 }
 
 async function getAccountTransactions(
@@ -424,21 +518,17 @@ export async function createInheritanceAccount(
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
   const accounts = loadAccounts();
   const identity = deriveLocalIdentity(masterKey);
+  const serverIdentity = await getServerIdentity();
 
   const normalizedCounterparty = normalizeCounterpartyContact(counterparty);
 
-  let address = "";
-  try {
-    address = deriveInheritanceAddressFromXpubs(
-      identity.xpub,
-      normalizedCounterparty.xpub,
-      0,
-      0,
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? ` (${error.message})` : "";
-    throw new Error(`Neplatný xpub/tpub protistrany${reason}`);
-  }
+  const participantSet = resolveInheritanceParticipantsFromInputs(
+    localRole,
+    identity.fingerprint,
+    identity.xpub,
+    normalizedCounterparty.fingerprint,
+    normalizedCounterparty.xpub,
+  );
 
   const accountId = deterministicInheritanceId(
     identity.fingerprint,
@@ -446,6 +536,28 @@ export async function createInheritanceAccount(
     normalizedCounterparty.fingerprint,
     normalizedCounterparty.xpub,
   );
+  const fundingBranch = deterministicBranchFromId(accountId);
+
+  let fundingAddress = "";
+  let activeAddress = "";
+  try {
+    fundingAddress = deriveInheritanceAddressFromXpubs(
+      participantSet.userXpub,
+      serverIdentity.xpub,
+      0,
+      0,
+      fundingBranch,
+    );
+    activeAddress = deriveInheritanceAddressFromXpubs(
+      participantSet.userXpub,
+      participantSet.heirXpub,
+      0,
+      0,
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? ` (${error.message})` : "";
+    throw new Error(`Neplatný xpub/tpub protistrany${reason}`);
+  }
 
   const existing = accounts.find(
     (storedAccount) => storedAccount.id === accountId,
@@ -463,9 +575,17 @@ export async function createInheritanceAccount(
     derivedAddresses: [
       {
         index: 0,
-        address,
+        address: fundingAddress,
         change: false,
         used: false,
+        role: "funding",
+      },
+      {
+        index: 0,
+        address: activeAddress,
+        change: false,
+        used: false,
+        role: "active",
       },
     ],
     localRole,
@@ -474,9 +594,11 @@ export async function createInheritanceAccount(
     counterpartyFingerprint: normalizedCounterparty.fingerprint,
     counterpartyXpub: normalizedCounterparty.xpub,
     identityDerivationPath: identity.derivationPath,
+    fundingBranch,
     heirFingerprint: normalizedCounterparty.fingerprint,
     heirXpub: normalizedCounterparty.xpub,
     heirName: counterparty.name,
+    inheritanceActivated: false,
     spendingConditions: conditions,
     inheritanceStatus: {
       blocksSinceFunding: 0,
@@ -503,11 +625,13 @@ export async function updateAccountBalance(
   }
 
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const serverIdentity = await getServerIdentity();
   const knownByAddress = new Map(
     account.derivedAddresses.map((addr) => [addr.address, addr] as const),
   );
 
   const candidates: DerivedAddress[] = [...account.derivedAddresses];
+  let expectedFundingAddresses: Set<string> | null = null;
   const addCandidate = (candidate: DerivedAddress) => {
     if (!knownByAddress.has(candidate.address)) {
       knownByAddress.set(candidate.address, candidate);
@@ -532,32 +656,66 @@ export async function updateAccountBalance(
     }
   } else {
     const identity = deriveLocalIdentity(masterKey);
-    const localXpub = account.localXpub || identity.xpub;
-    const counterpartyXpub = account.counterpartyXpub || account.heirXpub;
+    const participants = resolveInheritanceParticipants(account, identity);
+    const fundingBranch = getFundingBranch(account);
+    expectedFundingAddresses = new Set();
 
-    if (counterpartyXpub) {
+    if (participants.heirXpub) {
       for (let index = 0; index < ADDRESS_AUDIT_LIMIT; index++) {
+        const receiveFundingAddress = deriveInheritanceAddressFromXpubs(
+          participants.userXpub,
+          serverIdentity.xpub,
+          index,
+          0,
+          fundingBranch,
+        );
+        const changeFundingAddress = deriveInheritanceAddressFromXpubs(
+          participants.userXpub,
+          serverIdentity.xpub,
+          index,
+          1,
+          fundingBranch,
+        );
+        expectedFundingAddresses.add(receiveFundingAddress);
+        expectedFundingAddresses.add(changeFundingAddress);
+
+        addCandidate({
+          index,
+          address: receiveFundingAddress,
+          change: false,
+          used: false,
+          role: "funding",
+        });
+        addCandidate({
+          index,
+          address: changeFundingAddress,
+          change: true,
+          used: false,
+          role: "funding",
+        });
         addCandidate({
           index,
           address: deriveInheritanceAddressFromXpubs(
-            localXpub,
-            counterpartyXpub,
+            participants.userXpub,
+            participants.heirXpub,
             index,
             0,
           ),
           change: false,
           used: false,
+          role: "active",
         });
         addCandidate({
           index,
           address: deriveInheritanceAddressFromXpubs(
-            localXpub,
-            counterpartyXpub,
+            participants.userXpub,
+            participants.heirXpub,
             index,
             1,
           ),
           change: true,
           used: false,
+          role: "active",
         });
       }
     }
@@ -578,6 +736,17 @@ export async function updateAccountBalance(
       (known) => known.address === addr.address,
     );
     const hasActivity = stats.funded > 0 || utxos.length > 0 || addr.used;
+
+    const isUnexpectedUnusedLegacyFundingAddress =
+      account.type === "inheritance" &&
+      addr.role === "funding" &&
+      expectedFundingAddresses !== null &&
+      !expectedFundingAddresses.has(addr.address) &&
+      !hasActivity;
+
+    if (isUnexpectedUnusedLegacyFundingAddress) {
+      continue;
+    }
 
     if (!hadAddress && !hasActivity) {
       continue;
@@ -609,11 +778,22 @@ export async function updateAccountBalance(
     derivedAddresses: updatedAddresses,
   };
 
+  if (account.type === "inheritance") {
+    const hasActiveHistory = updatedAddresses.some(
+      (address) =>
+        (address.role === "active" || address.role === undefined) &&
+        (address.used || (address.balance || 0) > 0),
+    );
+    updatedAccount.inheritanceActivated =
+      Boolean(account.inheritanceActivated) || hasActiveHistory;
+    updatedAccount.fundingBranch = getFundingBranch(account);
+  }
+
   // Update inheritance status if needed
   if (account.type === "inheritance" && account.spendingConditions) {
     updatedAccount.inheritanceStatus = await calculateInheritanceStatus(
       account.spendingConditions,
-      updatedAddresses,
+      updatedAddresses.filter(isActiveInheritanceAddress),
     );
   }
 
@@ -678,7 +858,22 @@ async function discoverAccounts(mnemonic: string): Promise<void> {
 }
 
 export function getNextUnusedAddress(account: Account): DerivedAddress | null {
-  const unused = account.derivedAddresses.find((a) => !a.change && !a.used);
+  if (
+    account.type === "inheritance" &&
+    isInheritanceAccountActivated(account)
+  ) {
+    return null;
+  }
+
+  const unused =
+    account.type === "inheritance"
+      ? account.derivedAddresses.find(
+          (address) =>
+            !address.change && !address.used && isFundingAddress(address),
+        )
+      : account.derivedAddresses.find(
+          (address) => !address.change && !address.used,
+        );
   if (unused) return unused;
   return null;
 }
@@ -687,22 +882,40 @@ export async function generateNewAddress(
   mnemonic: string,
   account: Account,
 ): Promise<DerivedAddress> {
+  if (
+    account.type === "inheritance" &&
+    isInheritanceAccountActivated(account)
+  ) {
+    throw new Error(
+      "Dědický účet je aktivovaný, další funding adresy už nelze generovat",
+    );
+  }
+
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const serverIdentity = await getServerIdentity();
   const accounts = loadAccounts();
   const accountIndex = accounts.findIndex((a: Account) => a.id === account.id);
 
-  const newIndex = account.derivedAddresses.filter(
-    (a: DerivedAddress) => !a.change,
-  ).length;
+  const newIndex =
+    account.type === "inheritance"
+      ? account.derivedAddresses.filter(
+          (address: DerivedAddress) =>
+            !address.change && isFundingAddress(address),
+        ).length
+      : account.derivedAddresses.filter(
+          (address: DerivedAddress) => !address.change,
+        ).length;
   const localIdentity = deriveLocalIdentity(masterKey);
-  const counterpartyXpub = account.counterpartyXpub || account.heirXpub;
+  const participants = resolveInheritanceParticipants(account, localIdentity);
+  const fundingBranch = getFundingBranch(account);
   const address =
-    account.type === "inheritance" && counterpartyXpub
+    account.type === "inheritance" && participants.heirXpub
       ? deriveInheritanceAddressFromXpubs(
-          account.localXpub || localIdentity.xpub,
-          counterpartyXpub,
+          participants.userXpub,
+          serverIdentity.xpub,
           newIndex,
           0,
+          fundingBranch,
         )
       : deriveTaprootAddress(masterKey, accountIndex, newIndex);
 
@@ -711,6 +924,7 @@ export async function generateNewAddress(
     address,
     change: false,
     used: false,
+    role: account.type === "inheritance" ? "funding" : undefined,
   };
 
   account.derivedAddresses.push(newAddress);
@@ -884,6 +1098,82 @@ function getInheritanceLocalBasePath(
   return account.identityDerivationPath || identityDerivationPath;
 }
 
+function collectInheritanceUtxos(
+  account: Account,
+  allowedRole: "funding" | "active",
+  includeLegacyWithoutRole = false,
+): Promise<SpendableUtxo[]> {
+  return (async () => {
+    const allUtxos: SpendableUtxo[] = [];
+
+    const sourceAddresses = account.derivedAddresses.filter((address) => {
+      if (allowedRole === "funding") {
+        return address.role === "funding";
+      }
+      if (includeLegacyWithoutRole) {
+        return address.role === "active" || address.role === undefined;
+      }
+      return address.role === "active";
+    });
+
+    for (const derivedAddress of sourceAddresses) {
+      const utxos = await getAddressUTXOs(derivedAddress.address);
+      const change = derivedAddress.change ? 1 : 0;
+      for (const utxo of utxos) {
+        allUtxos.push({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          value: utxo.value,
+          addressIndex: derivedAddress.index,
+          change,
+        });
+      }
+    }
+
+    return allUtxos;
+  })();
+}
+
+function ensureInheritanceActiveAddress(
+  account: Account,
+  participants: ReturnType<typeof resolveInheritanceParticipants>,
+): DerivedAddress {
+  const usedActiveIndexes = account.derivedAddresses
+    .filter((address) => address.role === "active" && !address.change)
+    .map((address) => address.index);
+  const nextActiveIndex =
+    usedActiveIndexes.length > 0 ? Math.max(...usedActiveIndexes) + 1 : 0;
+
+  const destinationAddress = deriveInheritanceAddressFromXpubs(
+    participants.userXpub,
+    participants.heirXpub,
+    nextActiveIndex,
+    0,
+  );
+
+  const existing = account.derivedAddresses.find(
+    (address) => address.address === destinationAddress,
+  );
+  if (existing) {
+    existing.role = "active";
+    existing.used = true;
+    return existing;
+  }
+
+  const created: DerivedAddress = {
+    index: nextActiveIndex,
+    address: destinationAddress,
+    change: false,
+    used: true,
+    balance: 0,
+    role: "active",
+  };
+
+  account.derivedAddresses.push(created);
+  account.addressIndex = Math.max(account.addressIndex, nextActiveIndex + 1);
+  return created;
+}
+
 function getTxInputTxid(psbt: bitcoin.Psbt, inputIndex: number): string {
   return Buffer.from(psbt.txInputs[inputIndex].hash).reverse().toString("hex");
 }
@@ -907,6 +1197,10 @@ export async function createInheritancePartiallySignedTransaction(
   }
 
   const accountRef = accounts[accountIndex];
+  if (!isInheritanceAccountActivated(accountRef)) {
+    throw new Error("Účet není aktivovaný. Nejprve aktivujte prostředky.");
+  }
+
   const status = accountRef.inheritanceStatus;
   if (!status || !status.requiresMultisig) {
     throw new Error("Společné utrácení zatím není dostupné");
@@ -934,20 +1228,7 @@ export async function createInheritancePartiallySignedTransaction(
     throw new Error("Chybí xpub protistrany");
   }
 
-  const allUtxos: SpendableUtxo[] = [];
-  for (const derivedAddress of accountRef.derivedAddresses) {
-    const utxos = await getAddressUTXOs(derivedAddress.address);
-    const change = derivedAddress.change ? 1 : 0;
-    for (const utxo of utxos) {
-      allUtxos.push({
-        txid: utxo.txid,
-        vout: utxo.vout,
-        value: utxo.value,
-        addressIndex: derivedAddress.index,
-        change,
-      });
-    }
-  }
+  const allUtxos = await collectInheritanceUtxos(accountRef, "active", true);
 
   if (allUtxos.length === 0) {
     throw new Error("Žádné UTXO k utracení");
@@ -1074,6 +1355,10 @@ export async function completeInheritanceTransactionFromPsbt(
   }
 
   const accountRef = accounts[accountIndex];
+  if (!isInheritanceAccountActivated(accountRef)) {
+    throw new Error("Účet není aktivovaný. Nejprve aktivujte prostředky.");
+  }
+
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
   const identity = deriveLocalIdentity(masterKey);
   const localBasePath = getInheritanceLocalBasePath(
@@ -1084,7 +1369,9 @@ export async function completeInheritanceTransactionFromPsbt(
   const psbt = bitcoin.Psbt.fromBase64(psbtBase64.trim(), { network });
 
   const utxoLookup = new Map<string, { index: number; change: 0 | 1 }>();
-  for (const derivedAddress of accountRef.derivedAddresses) {
+  for (const derivedAddress of accountRef.derivedAddresses.filter((address) =>
+    isActiveInheritanceAddress(address),
+  )) {
     const utxos = await getAddressUTXOs(derivedAddress.address);
     const change = derivedAddress.change ? 1 : 0;
     for (const utxo of utxos) {
@@ -1126,6 +1413,132 @@ export async function completeInheritanceTransactionFromPsbt(
   const txid = await broadcastTransaction(txHex);
 
   return txid;
+}
+
+export async function activateInheritanceFunds(
+  mnemonic: string,
+  account: Account,
+  feeRate: number,
+): Promise<{
+  txid: string;
+  movedAmount: number;
+  fee: number;
+  destination: string;
+}> {
+  if (account.type !== "inheritance") {
+    throw new Error("Aktivace je dostupná pouze pro dědický účet");
+  }
+
+  if (!Number.isFinite(feeRate) || feeRate <= 0) {
+    throw new Error("Neplatný fee rate");
+  }
+
+  const network = getActiveBitcoinNetwork();
+  const accounts = loadAccounts();
+  const accountIndex = accounts.findIndex((item) => item.id === account.id);
+  if (accountIndex === -1) {
+    throw new Error("Účet nebyl nalezen");
+  }
+
+  const accountRef = accounts[accountIndex];
+  if (isInheritanceAccountActivated(accountRef)) {
+    throw new Error("Účet je už aktivovaný");
+  }
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const localIdentity = deriveLocalIdentity(masterKey);
+  const participants = resolveInheritanceParticipants(
+    accountRef,
+    localIdentity,
+  );
+  const serverIdentity = await getServerIdentity();
+  const fundingBranch = getFundingBranch(accountRef);
+
+  const fundingUtxos = await collectInheritanceUtxos(accountRef, "funding");
+  if (fundingUtxos.length === 0) {
+    throw new Error("Na funding adresách nejsou prostředky k aktivaci");
+  }
+
+  const totalValue = fundingUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
+  const fee = estimateInheritanceMultisigFee(fundingUtxos.length, 1, feeRate);
+  const movedAmount = totalValue - fee;
+
+  if (movedAmount <= 330) {
+    throw new Error("Nedostatek prostředků po odečtení poplatku");
+  }
+
+  const destination = ensureInheritanceActiveAddress(accountRef, participants);
+  const psbt = new bitcoin.Psbt({ network });
+
+  for (const utxo of fundingUtxos) {
+    const descriptor = deriveInheritanceDescriptorFromXpubs(
+      participants.userXpub,
+      serverIdentity.xpub,
+      utxo.addressIndex,
+      utxo.change,
+      fundingBranch,
+    );
+
+    psbt.addInput({
+      hash: utxo.txid,
+      index: utxo.vout,
+      witnessUtxo: {
+        script: descriptor.output,
+        value: BigInt(utxo.value),
+      },
+      witnessScript: descriptor.witnessScript,
+    });
+  }
+
+  psbt.addOutput({
+    address: destination.address,
+    value: BigInt(movedAmount),
+  });
+
+  const localBasePath = getInheritanceLocalBasePath(
+    accountRef,
+    localIdentity.derivationPath,
+  );
+
+  for (let inputIndex = 0; inputIndex < fundingUtxos.length; inputIndex++) {
+    const utxo = fundingUtxos[inputIndex];
+
+    const localChild = masterKey.derive(
+      `${localBasePath}/${fundingBranch}/${utxo.change}/${utxo.addressIndex}`,
+    );
+    if (!localChild.privateKey) {
+      throw new Error("Nepodařilo se odvodit lokální klíč pro aktivaci");
+    }
+    psbt.signInput(
+      inputIndex,
+      createEcdsaSigner(Buffer.from(localChild.privateKey)),
+    );
+
+    const serverChild = serverIdentity.masterKey.derive(
+      `${serverIdentity.derivationPath}/${fundingBranch}/${utxo.change}/${utxo.addressIndex}`,
+    );
+    if (!serverChild.privateKey) {
+      throw new Error("Nepodařilo se odvodit server klíč pro aktivaci");
+    }
+    psbt.signInput(
+      inputIndex,
+      createEcdsaSigner(Buffer.from(serverChild.privateKey)),
+    );
+  }
+
+  psbt.finalizeAllInputs();
+  const txid = await broadcastTransaction(psbt.extractTransaction().toHex());
+
+  accountRef.inheritanceActivated = true;
+
+  saveAccounts(accounts);
+
+  return {
+    txid,
+    movedAmount,
+    fee,
+    destination: destination.address,
+  };
 }
 
 export async function sendBitcoin(

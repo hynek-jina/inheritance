@@ -124,12 +124,14 @@ export function deriveInheritanceAddressFromXpubs(
   heirAccountXpub: string,
   addressIndex: number,
   change: 0 | 1 = 0,
+  branch = 0,
 ): string {
   const descriptor = deriveInheritanceDescriptorFromXpubs(
     userAccountXpub,
     heirAccountXpub,
     addressIndex,
     change,
+    branch,
   );
 
   return descriptor.address;
@@ -140,6 +142,7 @@ export function deriveInheritanceDescriptorFromXpubs(
   heirAccountXpub: string,
   addressIndex: number,
   change: 0 | 1 = 0,
+  branch = 0,
 ): {
   address: string;
   output: Buffer;
@@ -149,9 +152,11 @@ export function deriveInheritanceDescriptorFromXpubs(
   const heirAccountKey = parseExtendedKey(heirAccountXpub);
 
   const userChild = userAccountKey
+    .deriveChild(branch)
     .deriveChild(change)
     .deriveChild(addressIndex);
   const heirChild = heirAccountKey
+    .deriveChild(branch)
     .deriveChild(change)
     .deriveChild(addressIndex);
 

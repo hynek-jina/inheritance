@@ -21,6 +21,8 @@ export interface Account {
   counterpartyFingerprint?: string;
   counterpartyXpub?: string;
   identityDerivationPath?: string;
+  fundingBranch?: number;
+  inheritanceActivated?: boolean;
   spendingConditions?: SpendingConditions;
   inheritanceStatus?: InheritanceStatus;
 }
@@ -31,6 +33,7 @@ export interface DerivedAddress {
   change?: boolean;
   used: boolean;
   balance?: number; // satoshis
+  role?: "funding" | "active";
 }
 
 export interface SpendingConditions {

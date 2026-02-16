@@ -1,7 +1,11 @@
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
 import { NETWORK_CONFIG } from "../constants";
-import { generateNewAddress, getNextUnusedAddress } from "../services/wallet";
+import {
+  generateNewAddress,
+  getNextUnusedAddress,
+  isInheritanceAccountActivated,
+} from "../services/wallet";
 import type { Account } from "../types";
 import { loadActiveNetwork } from "../utils/storage";
 import "./Modal.css";
@@ -18,25 +22,49 @@ export function ReceiveModal({
   onClose,
 }: ReceiveModalProps) {
   const [address, setAddress] = useState<string>("");
+  const [addressError, setAddressError] = useState("");
   const [copied, setCopied] = useState(false);
   const network = loadActiveNetwork();
+  const isActivatedInheritance =
+    account.type === "inheritance" && isInheritanceAccountActivated(account);
 
   useEffect(() => {
     const loadAddress = async () => {
+      setAddressError("");
+
+      if (account.type === "inheritance" && isActivatedInheritance) {
+        setAddress("");
+        setAddressError(
+          "Účet je aktivovaný. Na funding adresy už nelze přijímat další prostředky.",
+        );
+        return;
+      }
+
       const unused = getNextUnusedAddress(account);
       if (unused) {
         setAddress(unused.address);
       } else {
-        // Generate new address
-        const newAddr = await generateNewAddress(mnemonic, account);
-        setAddress(newAddr.address);
+        try {
+          const newAddr = await generateNewAddress(mnemonic, account);
+          setAddress(newAddr.address);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Adresu se nepodařilo vytvořit";
+          setAddress("");
+          setAddressError(message);
+        }
       }
     };
 
-    loadAddress();
-  }, [account, mnemonic]);
+    void loadAddress();
+  }, [account, mnemonic, isActivatedInheritance]);
 
   const handleCopy = () => {
+    if (!address) {
+      return;
+    }
     navigator.clipboard.writeText(address);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -54,7 +82,11 @@ export function ReceiveModal({
 
         <div className="modal-body">
           <p className="modal-description">
-            Naskenujte QR kód nebo zkopírujte adresu pro příjem testnet bitcoinů
+            {account.type === "inheritance" && isActivatedInheritance
+              ? "Účet je už aktivovaný. Funding fáze je uzavřená a nové vklady už nepřijímá."
+              : account.type === "inheritance"
+                ? "Tato adresa je funding multisig (uživatel + server). Po přijetí prostředků použijte Aktivovat prostředky pro přesun na dědický účet."
+                : "Naskenujte QR kód nebo zkopírujte adresu pro příjem testnet bitcoinů"}
           </p>
 
           <div className="qr-container">
@@ -67,19 +99,24 @@ export function ReceiveModal({
                 fgColor="#000000"
               />
             ) : (
-              <div className="qr-loading">Načítání...</div>
+              <div className="qr-loading">
+                {addressError ? "Příjem není dostupný" : "Načítání..."}
+              </div>
             )}
           </div>
 
           <div className="address-box">
-            <code className="address-text">{address}</code>
+            <code className="address-text">{address || "—"}</code>
             <button
               onClick={handleCopy}
+              disabled={!address}
               className={`copy-btn ${copied ? "copied" : ""}`}
             >
               {copied ? "✓ Zkopírováno" : "Kopírovat"}
             </button>
           </div>
+
+          {addressError && <div className="error-message">{addressError}</div>}
 
           <div className="network-badge">
             {NETWORK_CONFIG[network].label} adresy začínají na "tb1..."
