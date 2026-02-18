@@ -25,6 +25,7 @@ import {
 import {
   deriveInheritanceAddressFromXpubs,
   deriveInheritanceDescriptorFromXpubs,
+  deriveNostrIdentityFromMnemonic,
   deriveTaprootAddress,
   generateMnemonic,
   getActiveBitcoinNetwork,
@@ -134,6 +135,14 @@ function getFundingBranch(
 export async function getWalletFingerprint(mnemonic: string): Promise<string> {
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
   return formatFingerprint(masterKey.fingerprint);
+}
+
+export async function getNostrIdentity(mnemonic: string): Promise<{
+  derivationPath: string;
+  nsec: string;
+  npub: string;
+}> {
+  return deriveNostrIdentityFromMnemonic(mnemonic);
 }
 
 export async function getLocalInheritanceIdentity(mnemonic: string): Promise<{

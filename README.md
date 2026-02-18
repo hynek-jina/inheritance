@@ -75,29 +75,29 @@ Additionally, for testing purposes, the app includes a **hardcoded server identi
 Install dependencies:
 
 ```bash
-npm install
+bun install
 ```
 
 Start development server:
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 Lint:
 
 ```bash
-npm run lint -- --max-warnings=0
+bun run lint --max-warnings=0
 ```
 
 Build:
 
 ```bash
-npm run build
+bun run build
 ```
 
 Preview production build:
 
 ```bash
-npm run preview
+bun run preview
 ```

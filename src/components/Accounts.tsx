@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AppNetwork } from "../constants";
 import { NETWORK_CONFIG } from "../constants";
-import { getWalletFingerprint, updateAccountBalance } from "../services/wallet";
+import {
+  loadEvoluContactsWithOwnerInfoFromMnemonic,
+  type EvoluContactSummary,
+} from "../services/evolu-contacts";
+import {
+  getNostrIdentity,
+  getWalletFingerprint,
+  updateAccountBalance,
+} from "../services/wallet";
 import type { Account } from "../types";
 import { loadAccounts } from "../utils/storage";
 import { AccountDetailPage } from "./AccountDetailPage";
 import "./Accounts.css";
+import { Contacts } from "./Contacts";
 import { InheritanceModal } from "./InheritanceModal";
 import { MenuBar } from "./MenuBar";
 import { ReceiveModal } from "./ReceiveModal";
@@ -24,6 +33,7 @@ export function Accounts({
   onNetworkChange,
   onLogout,
 }: AccountsProps) {
+  const [view, setView] = useState<"accounts" | "contacts">("accounts");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [detailAccount, setDetailAccount] = useState<Account | null>(null);
   const [modalAccount, setModalAccount] = useState<Account | null>(null);
@@ -31,25 +41,69 @@ export function Accounts({
   const [showSend, setShowSend] = useState(false);
   const [showInheritance, setShowInheritance] = useState(false);
   const [walletFingerprint, setWalletFingerprint] = useState("");
+  const [myNpub, setMyNpub] = useState("");
+  const [contacts, setContacts] = useState<EvoluContactSummary[]>([]);
+  const [contactsOwnerInfo, setContactsOwnerInfo] = useState<string | null>(
+    null,
+  );
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadAccountsData = useCallback(async () => {
     setIsLoading(true);
-    const loadedAccounts = loadAccounts();
+    setContactsLoading(true);
+    setContactsError(null);
+    try {
+      const loadedAccounts = loadAccounts();
 
-    // Update balances for all accounts
-    const updatedAccounts = await Promise.all(
-      loadedAccounts.map((account) => updateAccountBalance(account, mnemonic)),
-    );
-    const fingerprint = await getWalletFingerprint(mnemonic);
+      // Update balances for all accounts
+      const updatedAccounts = await Promise.all(
+        loadedAccounts.map((account) =>
+          updateAccountBalance(account, mnemonic),
+        ),
+      );
+      const [fingerprint, nostrIdentity] = await Promise.all([
+        getWalletFingerprint(mnemonic),
+        getNostrIdentity(mnemonic),
+      ]);
 
-    setAccounts(updatedAccounts);
-    setWalletFingerprint(fingerprint);
-    setDetailAccount((prev) => {
-      if (!prev) return prev;
-      return updatedAccounts.find((a) => a.id === prev.id) || prev;
-    });
-    setIsLoading(false);
+      setAccounts(updatedAccounts);
+      setWalletFingerprint(fingerprint);
+      setMyNpub(nostrIdentity.npub);
+      setDetailAccount((prev) => {
+        if (!prev) return prev;
+        return updatedAccounts.find((a) => a.id === prev.id) || prev;
+      });
+    } catch (error) {
+      console.error("Chyba při načítání účtů:", error);
+    } finally {
+      setIsLoading(false);
+    }
+
+    let loadedContacts: EvoluContactSummary[] = [];
+    let loadedOwnerInfo: string | null = null;
+    try {
+      const loaded = await loadEvoluContactsWithOwnerInfoFromMnemonic(mnemonic);
+      loadedContacts = loaded.contacts;
+
+      if (loaded.ownerInfo.pointer) {
+        const fallbackText = loaded.ownerInfo.previousPointer
+          ? ` (fallback: ${loaded.ownerInfo.previousPointer})`
+          : "";
+        loadedOwnerInfo = `${loaded.ownerInfo.pointer}${fallbackText}`;
+      } else if (loaded.ownerInfo.source === "direct-linky") {
+        loadedOwnerInfo = "direct-linky";
+      }
+    } catch (error) {
+      console.warn("Kontakty z Evolu se nepodařilo načíst:", error);
+      setContactsError("Kontakty z Evolu se nepodařilo načíst.");
+    } finally {
+      setContactsLoading(false);
+    }
+
+    setContacts(loadedContacts);
+    setContactsOwnerInfo(loadedOwnerInfo);
   }, [mnemonic]);
 
   useEffect(() => {
@@ -85,10 +139,23 @@ export function Accounts({
         mnemonic={mnemonic}
         network={network}
         onNetworkChange={onNetworkChange}
+        onOpenContacts={() => {
+          setDetailAccount(null);
+          setView("contacts");
+        }}
         onLogout={onLogout}
       />
 
-      {detailAccount ? (
+      {view === "contacts" ? (
+        <Contacts
+          npub={myNpub}
+          contacts={contacts}
+          ownerInfo={contactsOwnerInfo}
+          isLoading={contactsLoading}
+          error={contactsError}
+          onBack={() => setView("accounts")}
+        />
+      ) : detailAccount ? (
         <AccountDetailPage
           account={detailAccount}
           mnemonic={mnemonic}

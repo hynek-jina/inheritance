@@ -1,6 +1,7 @@
 import { HDKey } from "@scure/bip32";
 import * as bitcoin from "bitcoinjs-lib";
 import { Buffer } from "buffer";
+import { getPublicKey, nip19 } from "nostr-tools";
 import * as ecc from "tiny-secp256k1";
 import { NETWORK_CONFIG, TAPROOT_PATH } from "../constants";
 import {
@@ -58,11 +59,40 @@ export function generateMnemonic(): string {
 
 export { validateMnemonic };
 
+const NOSTR_DERIVATION_PATH = "m/44'/1237'/0'/0/0";
+
+export interface NostrIdentity {
+  derivationPath: string;
+  nsec: string;
+  npub: string;
+}
+
 export async function getMasterKeyFromMnemonic(
   mnemonic: string,
 ): Promise<HDKey> {
   const masterSecret = await recoverMasterSecret(mnemonic);
   return HDKey.fromMasterSeed(masterSecret, getActiveBip32Versions());
+}
+
+export async function deriveNostrIdentityFromMnemonic(
+  mnemonic: string,
+): Promise<NostrIdentity> {
+  const masterSecret = await recoverMasterSecret(mnemonic);
+  const nostrMasterKey = HDKey.fromMasterSeed(masterSecret);
+  const child = nostrMasterKey.derive(NOSTR_DERIVATION_PATH);
+
+  if (!child.privateKey) {
+    throw new Error("Nepodařilo se odvodit Nostr privátní klíč");
+  }
+
+  const privateKey = new Uint8Array(child.privateKey);
+  const publicKeyHex = getPublicKey(privateKey);
+
+  return {
+    derivationPath: NOSTR_DERIVATION_PATH,
+    nsec: nip19.nsecEncode(privateKey),
+    npub: nip19.npubEncode(publicKeyHex),
+  };
 }
 
 export function deriveTaprootAddress(

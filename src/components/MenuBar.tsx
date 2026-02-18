@@ -8,6 +8,7 @@ interface MenuBarProps {
   mnemonic: string;
   network: AppNetwork;
   onNetworkChange: (network: AppNetwork) => void;
+  onOpenContacts: () => void;
   onLogout: () => void;
 }
 
@@ -15,6 +16,7 @@ export function MenuBar({
   mnemonic,
   network,
   onNetworkChange,
+  onOpenContacts,
   onLogout,
 }: MenuBarProps) {
   const [showMenu, setShowMenu] = useState(false);
@@ -39,6 +41,11 @@ export function MenuBar({
     setShowMenu(false);
   };
 
+  const handleOpenContacts = () => {
+    onOpenContacts();
+    setShowMenu(false);
+  };
+
   return (
     <div className="menu-bar">
       <div className="menu-title">Bitcoin {NETWORK_CONFIG[network].label}</div>
@@ -52,6 +59,10 @@ export function MenuBar({
 
         {showMenu && (
           <div className="menu-dropdown">
+            <button onClick={handleOpenContacts} className="menu-item">
+              <span className="menu-icon">👥</span>
+              Kontakty
+            </button>
             <button onClick={handleCopySeed} className="menu-item">
               <span className="menu-icon">📋</span>
               {copied ? "Zkopírováno!" : "Zkopírovat seed"}

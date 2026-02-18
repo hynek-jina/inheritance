@@ -1,0 +1,74 @@
+.contacts-page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 16px 22px 28px;
+}
+
+.contacts-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.contacts-content h2 {
+  margin: 0 0 14px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.contact-card {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border-radius: 18px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 18px rgba(5, 9, 31, 0.25);
+}
+
+.contact-label {
+  font-size: 0.78rem;
+  opacity: 0.75;
+  margin-bottom: 8px;
+}
+
+.contact-npub {
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.contact-empty {
+  opacity: 0.8;
+  font-size: 0.9rem;
+}
+
+.contact-owner-info {
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  opacity: 0.75;
+  line-height: 1.35;
+}
+
+.contacts-list-card {
+  margin-top: 12px;
+}
+
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contact-item {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.contact-name {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
