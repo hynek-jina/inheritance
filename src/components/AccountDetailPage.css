@@ -39,6 +39,11 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
+.detail-balance-card.inheritance {
+  background: linear-gradient(135deg, #7bc9f9 0%, #4fa6de 100%);
+  box-shadow: 0 16px 38px rgba(92, 178, 235, 0.34);
+}
+
 .detail-account-name {
   font-size: 1.15rem;
   font-weight: 700;
@@ -105,9 +110,9 @@
 }
 
 .detail-action-btn.activate {
-  background: rgba(247, 147, 26, 0.24);
-  color: #ffbf6b;
-  border-color: rgba(247, 147, 26, 0.38);
+  background: rgba(76, 175, 80, 0.26);
+  color: #7be487;
+  border-color: rgba(76, 175, 80, 0.44);
 }
 
 .detail-inline-message {
@@ -180,6 +185,46 @@
 
 .detail-collapse-btn h3 {
   margin: 0;
+}
+
+.detail-mini-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+
+.detail-mini-btn {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.detail-mini-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.detail-mini-btn.danger {
+  border-color: rgba(244, 67, 54, 0.5);
+  color: #ff8a80;
+}
+
+.detail-mini-btn.danger:hover {
+  background: rgba(244, 67, 54, 0.16);
+  border-color: rgba(244, 67, 54, 0.7);
+}
+
+.detail-mini-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .detail-row {

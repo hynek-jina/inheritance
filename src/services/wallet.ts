@@ -1,3 +1,4 @@
+import { HDKey } from "@scure/bip32";
 import * as bitcoin from "bitcoinjs-lib";
 import { Buffer } from "buffer";
 import * as ecc from "tiny-secp256k1";
@@ -30,7 +31,6 @@ import {
   generateMnemonic,
   getActiveBitcoinNetwork,
   getMasterKeyFromMnemonic,
-  getPrivateKeyForAddress,
   normalizeExtendedPublicKey,
   validateMnemonic,
 } from "../utils/bitcoin";
@@ -126,10 +126,89 @@ function deterministicBranchFromId(accountId: string): number {
   return (hashStringToUint32(accountId) % 2147483646) + 1;
 }
 
+function generateInheritanceAccountId(): string {
+  const randomPart =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+
+  return `inheritance-${randomPart}`;
+}
+
 function getFundingBranch(
   account: Pick<Account, "id" | "fundingBranch">,
 ): number {
   return account.fundingBranch ?? deterministicBranchFromId(account.id);
+}
+
+const INHERITANCE_SHARE_PREFIX = "INHERITANCE_ACCOUNT:";
+
+type InheritanceAccountSharePayload = {
+  type: "inheritance-account";
+  sharedAccountId?: string;
+  accountName: string;
+  participants: {
+    user: {
+      fingerprint: string;
+      xpub: string;
+    };
+    heir: {
+      fingerprint: string;
+      xpub: string;
+    };
+  };
+  spendingConditions?: SpendingConditions;
+  version?: 1 | 2;
+  sharedByRole?: "user" | "heir";
+  sharedBy?: {
+    fingerprint: string;
+    xpub: string;
+  };
+};
+
+const MAINNET_BIP32 = {
+  private: 0x0488ade4,
+  public: 0x0488b21e,
+};
+
+function parseExtendedKeyForComparison(extendedKey: string): HDKey {
+  const normalized = normalizeExtendedKey(extendedKey);
+  const activeBip32 = getActiveBitcoinNetwork().bip32;
+
+  if (normalized.startsWith("tpub") || normalized.startsWith("tprv")) {
+    return HDKey.fromExtendedKey(normalized, activeBip32);
+  }
+
+  if (normalized.startsWith("xpub") || normalized.startsWith("xprv")) {
+    return HDKey.fromExtendedKey(normalized, MAINNET_BIP32);
+  }
+
+  try {
+    return HDKey.fromExtendedKey(normalized, activeBip32);
+  } catch {
+    return HDKey.fromExtendedKey(normalized, MAINNET_BIP32);
+  }
+}
+
+function areSameExtendedPublicNode(a: string, b: string): boolean {
+  const keyA = parseExtendedKeyForComparison(a);
+  const keyB = parseExtendedKeyForComparison(b);
+
+  if (
+    !keyA.publicKey ||
+    !keyB.publicKey ||
+    !keyA.chainCode ||
+    !keyB.chainCode
+  ) {
+    return false;
+  }
+
+  return (
+    Buffer.from(keyA.publicKey).equals(Buffer.from(keyB.publicKey)) &&
+    Buffer.from(keyA.chainCode).equals(Buffer.from(keyB.chainCode)) &&
+    keyA.depth === keyB.depth &&
+    keyA.index === keyB.index
+  );
 }
 
 export async function getWalletFingerprint(mnemonic: string): Promise<string> {
@@ -523,6 +602,7 @@ export async function createInheritanceAccount(
   counterparty: HeirContact,
   localRole: "user" | "heir" = "user",
   conditions: SpendingConditions = DEFAULT_INHERITANCE_CONDITIONS,
+  accountIdOverride?: string,
 ): Promise<Account> {
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
   const accounts = loadAccounts();
@@ -539,12 +619,7 @@ export async function createInheritanceAccount(
     normalizedCounterparty.xpub,
   );
 
-  const accountId = deterministicInheritanceId(
-    identity.fingerprint,
-    identity.xpub,
-    normalizedCounterparty.fingerprint,
-    normalizedCounterparty.xpub,
-  );
+  const accountId = accountIdOverride || generateInheritanceAccountId();
   const fundingBranch = deterministicBranchFromId(accountId);
 
   let fundingAddress = "";
@@ -621,6 +696,210 @@ export async function createInheritanceAccount(
   saveAccounts(accounts);
 
   return account;
+}
+
+export async function exportInheritanceAccountShare(
+  mnemonic: string,
+  account: Account,
+): Promise<string> {
+  if (account.type !== "inheritance") {
+    throw new Error("Sdílení je dostupné pouze pro dědický účet");
+  }
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const identity = deriveLocalIdentity(masterKey);
+  const participants = resolveInheritanceParticipants(account, identity);
+
+  const payload: InheritanceAccountSharePayload = {
+    type: "inheritance-account",
+    sharedAccountId: account.id,
+    accountName: account.name,
+    participants: {
+      user: {
+        fingerprint: participants.userFingerprint,
+        xpub: participants.userXpub,
+      },
+      heir: {
+        fingerprint: participants.heirFingerprint,
+        xpub: participants.heirXpub,
+      },
+    },
+    spendingConditions: account.spendingConditions,
+  };
+
+  return `${INHERITANCE_SHARE_PREFIX}${JSON.stringify(payload)}`;
+}
+
+export async function importInheritanceAccountShare(
+  mnemonic: string,
+  rawShare: string,
+): Promise<Account> {
+  const trimmed = rawShare.trim();
+  if (!trimmed) {
+    throw new Error("Sdílená data účtu jsou prázdná");
+  }
+
+  const jsonPayload = trimmed.startsWith(INHERITANCE_SHARE_PREFIX)
+    ? trimmed.slice(INHERITANCE_SHARE_PREFIX.length)
+    : trimmed;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonPayload);
+  } catch {
+    throw new Error("Neplatný formát sdílených dat účtu");
+  }
+
+  const payload = parsed as Partial<InheritanceAccountSharePayload>;
+
+  if (payload.type !== "inheritance-account") {
+    throw new Error("Neznámý formát sdíleného účtu");
+  }
+
+  const accountName =
+    typeof payload.accountName === "string" && payload.accountName.trim()
+      ? payload.accountName.trim()
+      : "Dědický účet";
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const identity = deriveLocalIdentity(masterKey);
+  const normalizedLocalFingerprint = normalizeFingerprint(identity.fingerprint);
+  const normalizedLocalXpub = normalizeExtendedKey(identity.xpub);
+
+  const participants = payload.participants;
+  let localRole: "user" | "heir";
+  let counterparty: HeirContact;
+  let accountIdOverride =
+    typeof payload.sharedAccountId === "string" && payload.sharedAccountId
+      ? payload.sharedAccountId.trim()
+      : "";
+
+  if (participants && participants.user && participants.heir) {
+    const normalizedUserFingerprint = normalizeFingerprint(
+      participants.user.fingerprint,
+    );
+    const normalizedUserXpub = normalizeExtendedKey(participants.user.xpub);
+    const normalizedHeirFingerprint = normalizeFingerprint(
+      participants.heir.fingerprint,
+    );
+    const normalizedHeirXpub = normalizeExtendedKey(participants.heir.xpub);
+
+    const isLocalUser =
+      areSameExtendedPublicNode(normalizedLocalXpub, normalizedUserXpub) ||
+      normalizedLocalFingerprint === normalizedUserFingerprint;
+    const isLocalHeir =
+      areSameExtendedPublicNode(normalizedLocalXpub, normalizedHeirXpub) ||
+      normalizedLocalFingerprint === normalizedHeirFingerprint;
+
+    if (!isLocalUser && !isLocalHeir) {
+      throw new Error(
+        "Tento sdílený účet nepatří této peněžence (neodpovídá user ani heir identita)",
+      );
+    }
+
+    if (isLocalUser) {
+      localRole = "user";
+      counterparty = {
+        id: `import-${Date.now()}`,
+        name: "Dědic",
+        fingerprint: participants.heir.fingerprint,
+        xpub: participants.heir.xpub,
+      };
+    } else {
+      localRole = "heir";
+      counterparty = {
+        id: `import-${Date.now()}`,
+        name: "Uživatel",
+        fingerprint: participants.user.fingerprint,
+        xpub: participants.user.xpub,
+      };
+    }
+
+    if (!accountIdOverride) {
+      accountIdOverride = deterministicInheritanceId(
+        participants.user.fingerprint,
+        participants.user.xpub,
+        participants.heir.fingerprint,
+        participants.heir.xpub,
+      );
+    }
+  } else {
+    const sharedByRole = payload.sharedByRole;
+    if (sharedByRole !== "user" && sharedByRole !== "heir") {
+      throw new Error("Sdílený účet neobsahuje platnou roli");
+    }
+
+    const sharedBy = payload.sharedBy;
+    if (
+      !sharedBy ||
+      typeof sharedBy.fingerprint !== "string" ||
+      typeof sharedBy.xpub !== "string"
+    ) {
+      throw new Error("Sdílený účet neobsahuje platné údaje protistrany");
+    }
+
+    counterparty = {
+      id: `import-${Date.now()}`,
+      name: sharedByRole === "user" ? "Uživatel" : "Dědic",
+      fingerprint: sharedBy.fingerprint,
+      xpub: sharedBy.xpub,
+    };
+
+    localRole = sharedByRole === "user" ? "heir" : "user";
+
+    if (!accountIdOverride) {
+      accountIdOverride = deterministicInheritanceId(
+        identity.fingerprint,
+        identity.xpub,
+        sharedBy.fingerprint,
+        sharedBy.xpub,
+      );
+    }
+  }
+
+  const spendingConditions = payload.spendingConditions;
+  return createInheritanceAccount(
+    mnemonic,
+    accountName,
+    counterparty,
+    localRole,
+    spendingConditions,
+    accountIdOverride || undefined,
+  );
+}
+
+export function renameAccount(accountId: string, newName: string): Account {
+  const normalizedName = newName.trim();
+  if (!normalizedName) {
+    throw new Error("Název účtu nemůže být prázdný");
+  }
+
+  const accounts = loadAccounts();
+  const accountIndex = accounts.findIndex((item) => item.id === accountId);
+  if (accountIndex === -1) {
+    throw new Error("Účet nebyl nalezen");
+  }
+
+  const updatedAccount: Account = {
+    ...accounts[accountIndex],
+    name: normalizedName,
+  };
+
+  accounts[accountIndex] = updatedAccount;
+  saveAccounts(accounts);
+
+  return updatedAccount;
+}
+
+export function deleteAccount(accountId: string): void {
+  const accounts = loadAccounts();
+  const nextAccounts = accounts.filter((item) => item.id !== accountId);
+
+  if (nextAccounts.length === accounts.length) {
+    throw new Error("Účet nebyl nalezen");
+  }
+
+  saveAccounts(nextAccounts);
 }
 
 export async function updateAccountBalance(
@@ -734,17 +1013,12 @@ export async function updateAccountBalance(
   const updatedAddresses: DerivedAddress[] = [];
 
   for (const addr of candidates) {
-    const [stats, utxos] = await Promise.all([
-      getAddressFundingStats(addr.address),
-      getAddressUTXOs(addr.address),
-    ]);
-
-    const utxoBalance = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
-    const balance = Math.max(utxoBalance, stats.balance, 0);
+    const stats = await getAddressFundingStats(addr.address);
+    const balance = Math.max(stats.balance, 0);
     const hadAddress = account.derivedAddresses.some(
       (known) => known.address === addr.address,
     );
-    const hasActivity = stats.funded > 0 || utxos.length > 0 || addr.used;
+    const hasActivity = stats.funded > 0 || addr.used;
 
     const isUnexpectedUnusedLegacyFundingAddress =
       account.type === "inheritance" &&
@@ -949,6 +1223,7 @@ interface SpendableUtxo {
   txid: string;
   vout: number;
   value: number;
+  address: string;
   addressIndex: number;
   change: 0 | 1;
 }
@@ -1133,6 +1408,7 @@ function collectInheritanceUtxos(
           txid: utxo.txid,
           vout: utxo.vout,
           value: utxo.value,
+          address: derivedAddress.address,
           addressIndex: derivedAddress.index,
           change,
         });
@@ -1185,6 +1461,131 @@ function ensureInheritanceActiveAddress(
 
 function getTxInputTxid(psbt: bitcoin.Psbt, inputIndex: number): string {
   return Buffer.from(psbt.txInputs[inputIndex].hash).reverse().toString("hex");
+}
+
+function deriveTaprootPaymentForPath(
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>,
+  derivationPath: string,
+  network: bitcoin.Network,
+): { address: string; internalPubkey: Buffer } {
+  const child = masterKey.derive(derivationPath);
+  if (!child.publicKey) {
+    throw new Error("Nepodařilo se odvodit veřejný klíč pro vstup");
+  }
+
+  const internalPubkey = Buffer.from(child.publicKey).slice(1, 33);
+  const payment = bitcoin.payments.p2tr({
+    internalPubkey,
+    network,
+  });
+
+  if (!payment.address) {
+    throw new Error("Nepodařilo se odvodit Taproot adresu z cesty");
+  }
+
+  return {
+    address: payment.address,
+    internalPubkey,
+  };
+}
+
+function resolveTaprootUtxoPath(
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>,
+  accountIndex: number,
+  knownAccountCount: number,
+  account: Account,
+  utxo: SpendableUtxo,
+  network: bitcoin.Network,
+): {
+  accountIndex: number;
+  addressIndex: number;
+  change: 0 | 1;
+  derivationPath: string;
+  internalPubkey: Buffer;
+} {
+  const candidates: Array<{ addressIndex: number; change: 0 | 1 }> = [];
+
+  const addCandidate = (addressIndex: number, change: 0 | 1) => {
+    if (
+      !candidates.some(
+        (candidate) =>
+          candidate.addressIndex === addressIndex &&
+          candidate.change === change,
+      )
+    ) {
+      candidates.push({ addressIndex, change });
+    }
+  };
+
+  const knownAddress = account.derivedAddresses.find(
+    (derivedAddress) => derivedAddress.address === utxo.address,
+  );
+
+  if (knownAddress) {
+    if (knownAddress.change === undefined) {
+      addCandidate(knownAddress.index, 0);
+      addCandidate(knownAddress.index, 1);
+    } else {
+      addCandidate(knownAddress.index, knownAddress.change ? 1 : 0);
+    }
+  }
+
+  addCandidate(utxo.addressIndex, utxo.change);
+  addCandidate(utxo.addressIndex, utxo.change === 0 ? 1 : 0);
+
+  const maxKnownIndex = Math.max(
+    0,
+    ...account.derivedAddresses.map((address) => address.index),
+    account.addressIndex,
+    utxo.addressIndex,
+  );
+  const broadIndexLimit = Math.max(maxKnownIndex + 50, 200);
+  for (let addressIndex = 0; addressIndex <= broadIndexLimit; addressIndex++) {
+    addCandidate(addressIndex, 0);
+    addCandidate(addressIndex, 1);
+  }
+
+  const accountIndexes = [accountIndex];
+  const scanLimit = Math.max(knownAccountCount + 20, accountIndex + 1);
+  for (let index = 0; index < scanLimit; index++) {
+    if (index !== accountIndex) {
+      accountIndexes.push(index);
+    }
+  }
+
+  for (const candidateAccountIndex of accountIndexes) {
+    for (const candidate of candidates) {
+      const pathVariants = [
+        `${TAPROOT_PATH}/${candidateAccountIndex}'/${candidate.change}/${candidate.addressIndex}`,
+        `${TAPROOT_PATH}/${candidateAccountIndex}/${candidate.change}/${candidate.addressIndex}`,
+        `${TAPROOT_PATH}/${candidateAccountIndex}'/${candidate.addressIndex}/${candidate.change}`,
+      ];
+
+      for (const derivationPath of pathVariants) {
+        try {
+          const payment = deriveTaprootPaymentForPath(
+            masterKey,
+            derivationPath,
+            network,
+          );
+          if (payment.address === utxo.address) {
+            return {
+              accountIndex: candidateAccountIndex,
+              ...candidate,
+              derivationPath,
+              internalPubkey: payment.internalPubkey,
+            };
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  }
+
+  throw new Error(
+    `Nelze určit odvozovací cestu pro UTXO adresu ${utxo.address}`,
+  );
 }
 
 export async function createInheritancePartiallySignedTransaction(
@@ -1585,9 +1986,10 @@ export async function sendBitcoin(
   }
 
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const accountRef = accounts[accountIndex];
 
   const allUtxos: SpendableUtxo[] = [];
-  for (const derivedAddress of account.derivedAddresses) {
+  for (const derivedAddress of accountRef.derivedAddresses) {
     const utxos = await getAddressUTXOs(derivedAddress.address);
     const change = derivedAddress.change ? 1 : 0;
     for (const utxo of utxos) {
@@ -1595,6 +1997,7 @@ export async function sendBitcoin(
         txid: utxo.txid,
         vout: utxo.vout,
         value: utxo.value,
+        address: derivedAddress.address,
         addressIndex: derivedAddress.index,
         change,
       });
@@ -1641,31 +2044,33 @@ export async function sendBitcoin(
 
   const psbt = new bitcoin.Psbt({ network });
 
-  for (const utxo of selected) {
-    const inputPath = `${TAPROOT_PATH}/${accountIndex}'/${utxo.change}/${utxo.addressIndex}`;
-    const child = masterKey.derive(inputPath);
-    if (!child.publicKey) {
-      throw new Error("Nepodařilo se odvodit veřejný klíč pro vstup");
-    }
-
-    const internalPubkey = Buffer.from(child.publicKey).slice(1, 33);
-    const payment = bitcoin.payments.p2tr({
-      internalPubkey,
+  const resolvedInputs = selected.map((utxo) => {
+    const resolvedPath = resolveTaprootUtxoPath(
+      masterKey,
+      accountIndex,
+      accounts.length,
+      accountRef,
+      utxo,
       network,
-    });
+    );
 
-    if (!payment.output) {
-      throw new Error("Nepodařilo se vytvořit output script");
-    }
+    return {
+      ...utxo,
+      ...resolvedPath,
+    };
+  });
+
+  for (const utxo of resolvedInputs) {
+    const outputScript = bitcoin.address.toOutputScript(utxo.address, network);
 
     psbt.addInput({
       hash: utxo.txid,
       index: utxo.vout,
       witnessUtxo: {
-        script: payment.output,
+        script: outputScript,
         value: BigInt(utxo.value),
       },
-      tapInternalKey: internalPubkey,
+      tapInternalKey: utxo.internalPubkey,
     });
   }
 
@@ -1674,7 +2079,6 @@ export async function sendBitcoin(
     value: BigInt(amountSats),
   });
 
-  const accountRef = accounts[accountIndex];
   const changeAddresses = accountRef.derivedAddresses
     .filter((address) => address.change)
     .sort((a, b) => a.index - b.index);
@@ -1711,14 +2115,14 @@ export async function sendBitcoin(
     selectedChangeAddress.used = true;
   }
 
-  for (let index = 0; index < selected.length; index++) {
-    const utxo = selected[index];
-    const privateKey = getPrivateKeyForAddress(
-      masterKey,
-      accountIndex,
-      utxo.addressIndex,
-      utxo.change,
-    );
+  for (let index = 0; index < resolvedInputs.length; index++) {
+    const utxo = resolvedInputs[index];
+    const child = masterKey.derive(utxo.derivationPath);
+    if (!child.privateKey) {
+      throw new Error("Nepodařilo se odvodit privátní klíč pro podpis vstupu");
+    }
+
+    const privateKey = Buffer.from(child.privateKey);
     const signer = createTweakedSigner(privateKey);
     psbt.signInput(index, signer);
   }

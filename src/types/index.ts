@@ -109,3 +109,11 @@ export interface HeirContact {
   fingerprint: string;
   xpub: string;
 }
+
+export interface Contact {
+  id: string;
+  name: string;
+  npub: string;
+  xpub: string;
+  fingerprint: string;
+}

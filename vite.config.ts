@@ -11,9 +11,9 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "Bitcoin Testnet Wallet",
-        short_name: "BTC Testnet",
-        description: "Bitcoin testnet peněženka s dědickými účty",
+        name: "Bitcoin Signet Wallet",
+        short_name: "BTC Signet",
+        description: "Bitcoin signet peněženka s dědickými účty",
         theme_color: "#1a1a2e",
         background_color: "#1a1a2e",
         display: "standalone",
@@ -40,6 +40,16 @@ export default defineConfig({
     global: "globalThis",
   },
   optimizeDeps: {
-    exclude: ["tiny-secp256k1", "@evolu/sqlite-wasm"],
+    exclude: ["tiny-secp256k1"],
+  },
+  server: {
+    proxy: {
+      "/mempool-api": {
+        target: "https://mempool.space/signet/api",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/mempool-api/, ""),
+      },
+    },
   },
 });

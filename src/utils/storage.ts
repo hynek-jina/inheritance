@@ -1,6 +1,6 @@
 import type { AppNetwork } from "../constants";
 import { DEFAULT_NETWORK, STORAGE_KEYS } from "../constants";
-import type { Account, Transaction, Wallet } from "../types";
+import type { Account, Contact, Transaction, Wallet } from "../types";
 
 export function saveWallet(wallet: Wallet): void {
   localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify(wallet));
@@ -15,6 +15,7 @@ export function clearWallet(): void {
   localStorage.removeItem(STORAGE_KEYS.WALLET);
   localStorage.removeItem(STORAGE_KEYS.ACCOUNTS);
   localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
+  localStorage.removeItem(STORAGE_KEYS.CONTACTS);
 }
 
 export function saveAccounts(accounts: Account[]): void {
@@ -41,8 +42,17 @@ export function saveActiveNetwork(network: AppNetwork): void {
 
 export function loadActiveNetwork(): AppNetwork {
   const data = localStorage.getItem(STORAGE_KEYS.NETWORK);
-  if (data === "testnet" || data === "signet") {
+  if (data === "signet") {
     return data;
   }
   return DEFAULT_NETWORK;
+}
+
+export function saveContacts(contacts: Contact[]): void {
+  localStorage.setItem(STORAGE_KEYS.CONTACTS, JSON.stringify(contacts));
+}
+
+export function loadContacts(): Contact[] {
+  const data = localStorage.getItem(STORAGE_KEYS.CONTACTS);
+  return data ? JSON.parse(data) : [];
 }

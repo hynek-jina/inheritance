@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DEFAULT_INHERITANCE_CONDITIONS } from "../constants";
-import {
-  createInheritanceAccount,
-  getLocalInheritanceIdentity,
-} from "../services/wallet";
+import { createInheritanceAccount } from "../services/wallet";
+import type { Contact, SpendingConditions } from "../types";
+import { loadContacts } from "../utils/storage";
 import "./Modal.css";
 
 interface InheritanceModalProps {
@@ -12,53 +11,88 @@ interface InheritanceModalProps {
 }
 
 export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
+  const [contacts] = useState<Contact[]>(() => loadContacts());
   const [localRole, setLocalRole] = useState<"user" | "heir">("user");
   const [accountName, setAccountName] = useState("Dědický účet");
-  const [counterpartyFingerprint, setCounterpartyFingerprint] = useState("");
-  const [counterpartyXpub, setCounterpartyXpub] = useState("");
+  const [selectedContactId, setSelectedContactId] = useState("");
+  const [multisigAfterBlocks, setMultisigAfterBlocks] = useState(
+    DEFAULT_INHERITANCE_CONDITIONS.multisigAfterBlocks,
+  );
+  const [userOnlyAfterBlocks, setUserOnlyAfterBlocks] = useState(
+    DEFAULT_INHERITANCE_CONDITIONS.userOnlyAfterBlocks,
+  );
+  const [heirOnlyAfterBlocks, setHeirOnlyAfterBlocks] = useState(
+    DEFAULT_INHERITANCE_CONDITIONS.heirOnlyAfterBlocks,
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
-  const [localIdentity, setLocalIdentity] = useState<{
-    fingerprint: string;
-    tpub: string;
-    derivationPath: string;
-  } | null>(null);
 
-  useEffect(() => {
-    const timerId = window.setTimeout(() => {
-      void getLocalInheritanceIdentity(mnemonic)
-        .then((identity) => setLocalIdentity(identity))
-        .catch(() => {
-          setError("Nepodařilo se načíst lokální identitu");
-        });
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timerId);
-    };
-  }, [mnemonic]);
+  const selectedContact = contacts.find(
+    (contact) => contact.id === selectedContactId,
+  );
 
   const handleCreate = async () => {
     setError("");
-    const normalizedFingerprint = counterpartyFingerprint
-      .trim()
-      .replace(/^0x/, "");
-    const normalizedXpub = counterpartyXpub.replace(/\s+/g, "").trim();
 
     if (!accountName.trim()) {
       setError("Zadejte název účtu");
       return;
     }
 
+    if (!selectedContact) {
+      setError("Vyberte kontakt protistrany");
+      return;
+    }
+
+    const normalizedFingerprint = selectedContact.fingerprint
+      .trim()
+      .replace(/^0x/, "");
+    const normalizedXpub = selectedContact.xpub.replace(/\s+/g, "").trim();
+
     if (!/^[0-9a-fA-F]{8}$/.test(normalizedFingerprint)) {
-      setError("Fingerprint dědice musí mít 8 hex znaků");
+      setError(
+        "Vybraný kontakt má neplatný fingerprint (musí mít 8 hex znaků)",
+      );
       return;
     }
 
     if (!normalizedXpub) {
-      setError("Zadejte tpub/xpub dědice");
+      setError("Vybraný kontakt má prázdný xpub/tpub");
       return;
     }
+
+    const parsedMultisigAfter = Math.floor(Number(multisigAfterBlocks));
+    const parsedUserOnlyAfter = Math.floor(Number(userOnlyAfterBlocks));
+    const parsedHeirOnlyAfter = Math.floor(Number(heirOnlyAfterBlocks));
+
+    if (
+      parsedMultisigAfter < 0 ||
+      parsedUserOnlyAfter < 0 ||
+      parsedHeirOnlyAfter < 0 ||
+      Number.isNaN(parsedMultisigAfter) ||
+      Number.isNaN(parsedUserOnlyAfter) ||
+      Number.isNaN(parsedHeirOnlyAfter)
+    ) {
+      setError("Počty bloků musí být nezáporná celá čísla");
+      return;
+    }
+
+    if (
+      parsedMultisigAfter > parsedUserOnlyAfter ||
+      parsedMultisigAfter > parsedHeirOnlyAfter
+    ) {
+      setError(
+        "Společné utrácení musí začínat nejpozději ve stejném bloku jako samostatné utrácení",
+      );
+      return;
+    }
+
+    const spendingConditions: SpendingConditions = {
+      noSpendBlocks: parsedMultisigAfter,
+      multisigAfterBlocks: parsedMultisigAfter,
+      userOnlyAfterBlocks: parsedUserOnlyAfter,
+      heirOnlyAfterBlocks: parsedHeirOnlyAfter,
+    };
 
     setIsCreating(true);
     try {
@@ -67,12 +101,14 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
         accountName.trim(),
         {
           id: `heir-${Date.now()}`,
-          name: localRole === "user" ? "Dědic" : "Uživatel",
+          name:
+            selectedContact.name ||
+            (localRole === "user" ? "Dědic" : "Uživatel"),
           fingerprint: normalizedFingerprint,
           xpub: normalizedXpub,
         },
         localRole,
-        DEFAULT_INHERITANCE_CONDITIONS,
+        spendingConditions,
       );
       onClose();
     } catch (error) {
@@ -101,11 +137,19 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
 
         <div className="modal-body">
           <p className="step-description">
-            Zadejte údaje protistrany. Pokud obě strany použijí stejný pár
-            fingerprint+tpub, vznikne stejný společný účet. Podmínky: 0–4 bloky
-            nikdo, od 5 bloků uživatel + dědic, od 10 bloků uživatel, od 20
-            bloků dědic.
+            Vyberte kontakt protistrany a nastavte od kolika bloků bude možné
+            společné a samostatné utrácení.
           </p>
+
+          <div className="form-group">
+            <label>Název účtu</label>
+            <input
+              type="text"
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+              className="form-input"
+            />
+          </div>
 
           <div className="form-group">
             <label>Moje role</label>
@@ -127,58 +171,66 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
             </div>
           </div>
 
-          {localIdentity && (
-            <div className="summary-box">
-              <h4>Moje údaje ke sdílení</h4>
-              <div className="summary-item">
-                <span>Fingerprint</span>
-                <span>{localIdentity.fingerprint}</span>
-              </div>
-              <div className="summary-item">
-                <span>Derivační cesta</span>
-                <span>{localIdentity.derivationPath}</span>
-              </div>
-              <div className="summary-item mono">
-                <span>tpub</span>
-                <span>{localIdentity.tpub.slice(0, 32)}…</span>
-              </div>
-            </div>
-          )}
-
-          <div className="form-group">
-            <label>Název účtu</label>
-            <input
-              type="text"
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-              className="form-input"
-            />
-          </div>
-
           <div className="form-group">
             <label>
-              Fingerprint protistrany (
+              Kontakt protistrany (
               {localRole === "user" ? "dědice" : "uživatele"})
             </label>
+            <select
+              value={selectedContactId}
+              onChange={(e) => setSelectedContactId(e.target.value)}
+              className="form-input"
+            >
+              <option value="">Vyberte kontakt</option>
+              {contacts.map((contact) => (
+                <option key={contact.id} value={contact.id}>
+                  {contact.name}
+                </option>
+              ))}
+            </select>
+            {selectedContact && (
+              <div className="input-hint mono">
+                fp: {selectedContact.fingerprint} • xpub:{" "}
+                {selectedContact.xpub.slice(0, 20)}…
+              </div>
+            )}
+            {!selectedContact && contacts.length === 0 && (
+              <div className="input-hint">
+                Nemáte uložené kontakty. Přidejte je v sekci Kontakty.
+              </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label>Od kolika bloků může utrácet uživatel + dědic</label>
             <input
-              type="text"
-              value={counterpartyFingerprint}
-              onChange={(e) => setCounterpartyFingerprint(e.target.value)}
-              placeholder="např. d90c6a4f"
+              type="number"
+              min={0}
+              value={multisigAfterBlocks}
+              onChange={(e) => setMultisigAfterBlocks(Number(e.target.value))}
               className="form-input"
             />
           </div>
 
           <div className="form-group">
-            <label>
-              tpub protistrany ({localRole === "user" ? "dědice" : "uživatele"})
-            </label>
-            <textarea
-              value={counterpartyXpub}
-              onChange={(e) => setCounterpartyXpub(e.target.value)}
-              placeholder="tpub..."
+            <label>Od kolika bloků stačí uživatel</label>
+            <input
+              type="number"
+              min={0}
+              value={userOnlyAfterBlocks}
+              onChange={(e) => setUserOnlyAfterBlocks(Number(e.target.value))}
               className="form-input"
-              rows={3}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Od kolika bloků stačí dědic</label>
+            <input
+              type="number"
+              min={0}
+              value={heirOnlyAfterBlocks}
+              onChange={(e) => setHeirOnlyAfterBlocks(Number(e.target.value))}
+              className="form-input"
             />
           </div>
 
@@ -186,9 +238,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
 
           <button
             onClick={handleCreate}
-            disabled={
-              isCreating || !counterpartyFingerprint || !counterpartyXpub
-            }
+            disabled={isCreating || !selectedContactId}
             className="btn-primary btn-full"
           >
             {isCreating ? "Vytváření..." : "Vytvořit společný účet"}

@@ -2,13 +2,21 @@ import { useState } from "react";
 import {
   completeInheritanceTransactionFromPsbt,
   createInheritancePartiallySignedTransaction,
+  isInheritanceAccountActivated,
   sendBitcoin,
 } from "../services/wallet";
 import type { Account } from "../types";
 import "./Modal.css";
 
+interface InheritanceRecipientOption {
+  accountId: string;
+  accountName: string;
+  address: string;
+}
+
 interface SendModalProps {
   account: Account;
+  accounts: Account[];
   mnemonic: string;
   onClose: () => void;
   onSent: () => void;
@@ -16,11 +24,49 @@ interface SendModalProps {
 
 export function SendModal({
   account,
+  accounts,
   mnemonic,
   onClose,
   onSent,
 }: SendModalProps) {
   const isInheritance = account.type === "inheritance";
+  const availableInheritanceTargets: InheritanceRecipientOption[] = accounts
+    .filter(
+      (candidate) =>
+        candidate.type === "inheritance" &&
+        candidate.id !== account.id &&
+        !isInheritanceAccountActivated(candidate),
+    )
+    .map((candidate) => {
+      const fundingAddresses = candidate.derivedAddresses
+        .filter((address) => address.role === "funding" && !address.change)
+        .sort((a, b) => a.index - b.index);
+
+      const preferredAddress =
+        fundingAddresses.find((address) => !address.used) ||
+        fundingAddresses[0] ||
+        null;
+
+      if (!preferredAddress) {
+        return null;
+      }
+
+      return {
+        accountId: candidate.id,
+        accountName: candidate.name,
+        address: preferredAddress.address,
+      };
+    })
+    .filter(
+      (item): item is InheritanceRecipientOption =>
+        item !== null && Boolean(item.address),
+    );
+
+  const [recipientMode, setRecipientMode] = useState<"address" | "account">(
+    "address",
+  );
+  const [selectedInheritanceAccountId, setSelectedInheritanceAccountId] =
+    useState("");
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [fee, setFee] = useState("5");
@@ -32,6 +78,13 @@ export function SendModal({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const resolvedRecipientAddress =
+    recipientMode === "account"
+      ? availableInheritanceTargets.find(
+          (target) => target.accountId === selectedInheritanceAccountId,
+        )?.address || ""
+      : recipient;
 
   const validateAddress = (addr: string): boolean => {
     return (
@@ -71,8 +124,8 @@ export function SendModal({
     setSuccess("");
 
     // Validation
-    if (!validateAddress(recipient)) {
-      setError("Neplatná testnet adresa");
+    if (!validateAddress(resolvedRecipientAddress)) {
+      setError("Neplatná signet adresa");
       return;
     }
 
@@ -88,7 +141,7 @@ export function SendModal({
       const txid = await sendBitcoin(
         mnemonic,
         account,
-        recipient,
+        resolvedRecipientAddress,
         amountSats,
         feeRate,
       );
@@ -111,8 +164,8 @@ export function SendModal({
     setError("");
     setSuccess("");
 
-    if (!validateAddress(recipient)) {
-      setError("Neplatná testnet/signet adresa");
+    if (!validateAddress(resolvedRecipientAddress)) {
+      setError("Neplatná signet adresa");
       return;
     }
 
@@ -126,7 +179,7 @@ export function SendModal({
       const draft = await createInheritancePartiallySignedTransaction(
         mnemonic,
         account,
-        recipient,
+        resolvedRecipientAddress,
         validated.amountSats,
         validated.feeRate,
       );
@@ -225,15 +278,63 @@ export function SendModal({
 
           {(!isInheritance || inheritanceMode === "create") && (
             <>
+              {availableInheritanceTargets.length > 0 && (
+                <div className="form-group">
+                  <label>Cíl odeslání</label>
+                  <div className="fee-options">
+                    <button
+                      type="button"
+                      onClick={() => setRecipientMode("address")}
+                      className={`fee-btn ${recipientMode === "address" ? "active" : ""}`}
+                    >
+                      Adresa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecipientMode("account")}
+                      className={`fee-btn ${recipientMode === "account" ? "active" : ""}`}
+                    >
+                      Dědický účet
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
-                <label>Adresa příjemce</label>
-                <input
-                  type="text"
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  placeholder="tb1..."
-                  className="form-input"
-                />
+                <label>
+                  {recipientMode === "account"
+                    ? "Vyberte dědický účet"
+                    : "Adresa příjemce"}
+                </label>
+                {recipientMode === "account" ? (
+                  <select
+                    value={selectedInheritanceAccountId}
+                    onChange={(e) =>
+                      setSelectedInheritanceAccountId(e.target.value)
+                    }
+                    className="form-input"
+                  >
+                    <option value="">Vyberte účet</option>
+                    {availableInheritanceTargets.map((target) => (
+                      <option key={target.accountId} value={target.accountId}>
+                        {target.accountName}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
+                    placeholder="tb1..."
+                    className="form-input"
+                  />
+                )}
+                {recipientMode === "account" && resolvedRecipientAddress && (
+                  <div className="input-hint mono">
+                    Funding adresa: {resolvedRecipientAddress}
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
@@ -320,7 +421,7 @@ export function SendModal({
           {!isInheritance && (
             <button
               onClick={handleStandardSend}
-              disabled={isSending || !recipient || !amount}
+              disabled={isSending || !resolvedRecipientAddress || !amount}
               className="btn-primary btn-full"
             >
               {isSending ? "Odesílání..." : "Odeslat"}
@@ -330,7 +431,7 @@ export function SendModal({
           {isInheritance && inheritanceMode === "create" && (
             <button
               onClick={handleCreatePartial}
-              disabled={isSending || !recipient || !amount}
+              disabled={isSending || !resolvedRecipientAddress || !amount}
               className="btn-primary btn-full"
             >
               {isSending ? "Podepisování..." : "Podepsat a exportovat PSBT"}

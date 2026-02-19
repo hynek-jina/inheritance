@@ -7,7 +7,7 @@ import "./MenuBar.css";
 interface MenuBarProps {
   mnemonic: string;
   network: AppNetwork;
-  onNetworkChange: (network: AppNetwork) => void;
+  onPasteAccount: () => Promise<void>;
   onOpenContacts: () => void;
   onLogout: () => void;
 }
@@ -15,7 +15,7 @@ interface MenuBarProps {
 export function MenuBar({
   mnemonic,
   network,
-  onNetworkChange,
+  onPasteAccount,
   onOpenContacts,
   onLogout,
 }: MenuBarProps) {
@@ -34,16 +34,14 @@ export function MenuBar({
     onLogout();
   };
 
-  const handleToggleNetwork = () => {
-    const nextNetwork: AppNetwork =
-      network === "testnet" ? "signet" : "testnet";
-    onNetworkChange(nextNetwork);
-    setShowMenu(false);
-  };
-
   const handleOpenContacts = () => {
     onOpenContacts();
     setShowMenu(false);
+  };
+
+  const handlePasteAccount = () => {
+    setShowMenu(false);
+    void onPasteAccount();
   };
 
   return (
@@ -67,9 +65,9 @@ export function MenuBar({
               <span className="menu-icon">📋</span>
               {copied ? "Zkopírováno!" : "Zkopírovat seed"}
             </button>
-            <button onClick={handleToggleNetwork} className="menu-item">
-              <span className="menu-icon">🌐</span>
-              Přepnout na {network === "testnet" ? "Signet" : "Testnet"}
+            <button onClick={handlePasteAccount} className="menu-item">
+              <span className="menu-icon">📥</span>
+              Vložit účet
             </button>
             <button
               onClick={handleLogout}

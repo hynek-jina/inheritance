@@ -1,68 +1,99 @@
-import type { EvoluContactSummary } from "../services/evolu-contacts";
+import { type FormEvent, useState } from "react";
+import type { Contact } from "../types";
+import { loadContacts, saveContacts } from "../utils/storage";
 import "./Contacts.css";
 
 interface ContactsProps {
   npub: string;
-  contacts: EvoluContactSummary[];
-  ownerInfo: string | null;
-  isLoading: boolean;
-  error: string | null;
   onBack: () => void;
 }
 
-export function Contacts({
-  npub,
-  contacts,
-  ownerInfo,
-  isLoading,
-  error,
-  onBack,
-}: ContactsProps) {
+function shortenTechnicalValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= 14) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
+}
+
+export function Contacts({ npub, onBack }: ContactsProps) {
+  const [contacts, setContacts] = useState<Contact[]>(() => loadContacts());
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [contactNpub, setContactNpub] = useState("");
+  const [xpub, setXpub] = useState("");
+  const [fingerprint, setFingerprint] = useState("");
   const hasNpub = Boolean(npub.trim());
 
-  // Parse ownerInfo for debug display
-  let ownerDebugInfo: React.ReactNode = null;
-  if (ownerInfo) {
-    // Try to parse info if it contains pointer and/or fallback
-    // ownerInfo is a string like "contacts-0 (fallback: contacts-1)" or "direct-linky"
-    const pointerMatch = ownerInfo.match(/^(contacts-\d+)/);
-    const fallbackMatch = ownerInfo.match(/fallback: (contacts-\d+)/);
-    const isDirect = ownerInfo === "direct-linky";
-    let derivationPath = null;
-    if (pointerMatch) {
-      derivationPath = `m/83696968'/39'/0'/24'/2'/${pointerMatch[1].replace("contacts-", "")}'`;
+  const resetForm = () => {
+    setEditingContactId(null);
+    setName("");
+    setContactNpub("");
+    setXpub("");
+    setFingerprint("");
+  };
+
+  const handleSubmitContact = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const normalizedContact = {
+      name: name.trim(),
+      npub: contactNpub.trim(),
+      xpub: xpub.trim(),
+      fingerprint: fingerprint.trim(),
+    };
+
+    if (editingContactId) {
+      const nextContacts = contacts.map((contact) =>
+        contact.id === editingContactId
+          ? { ...contact, ...normalizedContact }
+          : contact,
+      );
+      setContacts(nextContacts);
+      saveContacts(nextContacts);
+      resetForm();
+      return;
     }
-    ownerDebugInfo = (
-      <div className="contact-owner-info">
-        <div>
-          <b>Aktivní contact owner:</b> {ownerInfo}
-        </div>
-        {isDirect && (
-          <div>
-            <b>Zdroj:</b> direct-linky (linky-evolu-v1)
-          </div>
-        )}
-        {pointerMatch && (
-          <>
-            <div>
-              <b>Zdroj:</b> owner-lane
-            </div>
-            <div>
-              <b>Derivation path:</b> {derivationPath}
-            </div>
-            <div>
-              <b>Pointer:</b> {pointerMatch[1]}
-            </div>
-          </>
-        )}
-        {fallbackMatch && (
-          <div>
-            <b>Fallback pointer:</b> {fallbackMatch[1]}
-          </div>
-        )}
-      </div>
+
+    const nextContact: Contact = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      ...normalizedContact,
+    };
+
+    const nextContacts = [nextContact, ...contacts];
+    setContacts(nextContacts);
+    saveContacts(nextContacts);
+    resetForm();
+  };
+
+  const handleEditContact = (contact: Contact) => {
+    setEditingContactId(contact.id);
+    setName(contact.name);
+    setContactNpub(contact.npub);
+    setXpub(contact.xpub);
+    setFingerprint(contact.fingerprint);
+  };
+
+  const handleDeleteContact = (contact: Contact) => {
+    const isConfirmed = window.confirm(
+      `Opravdu chcete smazat kontakt ${contact.name}?`,
     );
-  }
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    const nextContacts = contacts.filter(
+      (currentContact) => currentContact.id !== contact.id,
+    );
+    setContacts(nextContacts);
+    saveContacts(nextContacts);
+
+    if (editingContactId === contact.id) {
+      resetForm();
+    }
+  };
 
   return (
     <div className="contacts-page">
@@ -86,24 +117,110 @@ export function Contacts({
           )}
         </div>
 
-        <div className="contact-card contacts-list-card">
-          <div className="contact-label">Kontakty z Evolu</div>
-          {ownerDebugInfo}
-          {isLoading ? (
-            <div className="contact-empty">Načítám kontakty...</div>
-          ) : error ? (
-            <div className="contact-empty">{error}</div>
-          ) : contacts.length === 0 ? (
-            <div className="contact-empty">Žádné kontakty nebyly nalezeny.</div>
-          ) : (
-            <div className="contacts-list">
-              {contacts.map((contact) => (
-                <div key={contact.npub} className="contact-item">
-                  <div className="contact-name">{contact.name}</div>
-                  <div className="contact-npub mono wrap">{contact.npub}</div>
-                </div>
-              ))}
+        <form className="contact-form" onSubmit={handleSubmitContact}>
+          <h3>{editingContactId ? "Upravit kontakt" : "Přidat kontakt"}</h3>
+
+          <label className="contact-input-label" htmlFor="contact-name">
+            Jméno
+          </label>
+          <input
+            id="contact-name"
+            className="contact-input"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+          />
+
+          <label className="contact-input-label" htmlFor="contact-npub">
+            npub
+          </label>
+          <input
+            id="contact-npub"
+            className="contact-input mono"
+            value={contactNpub}
+            onChange={(event) => setContactNpub(event.target.value)}
+            required
+          />
+
+          <label className="contact-input-label" htmlFor="contact-xpub">
+            xpub
+          </label>
+          <input
+            id="contact-xpub"
+            className="contact-input mono"
+            value={xpub}
+            onChange={(event) => setXpub(event.target.value)}
+            required
+          />
+
+          <label className="contact-input-label" htmlFor="contact-fingerprint">
+            fingerprint
+          </label>
+          <input
+            id="contact-fingerprint"
+            className="contact-input mono"
+            value={fingerprint}
+            onChange={(event) => setFingerprint(event.target.value)}
+            required
+          />
+
+          <div className="contact-form-actions">
+            <button type="submit" className="add-contact-btn">
+              {editingContactId ? "Uložit změny" : "Přidat kontakt"}
+            </button>
+            {editingContactId && (
+              <button
+                type="button"
+                className="secondary-contact-btn"
+                onClick={resetForm}
+              >
+                Zrušit
+              </button>
+            )}
+          </div>
+        </form>
+
+        <div className="saved-contacts">
+          <h3>Uložené kontakty</h3>
+          {contacts.length === 0 ? (
+            <div className="contact-empty">
+              Zatím nemáte uložené žádné kontakty.
             </div>
+          ) : (
+            contacts.map((contact) => (
+              <div className="contact-card" key={contact.id}>
+                <div className="contact-row-header">
+                  <div className="contact-name">{contact.name}</div>
+                  <div className="contact-actions">
+                    <button
+                      type="button"
+                      className="contact-action-btn"
+                      onClick={() => handleEditContact(contact)}
+                    >
+                      Upravit
+                    </button>
+                    <button
+                      type="button"
+                      className="contact-action-btn danger"
+                      onClick={() => handleDeleteContact(contact)}
+                    >
+                      Smazat
+                    </button>
+                  </div>
+                </div>
+                <div className="contact-tech-row mono">
+                  <span className="contact-tech-item">
+                    npub: {shortenTechnicalValue(contact.npub)}
+                  </span>
+                  <span className="contact-tech-item">
+                    xpub: {shortenTechnicalValue(contact.xpub)}
+                  </span>
+                  <span className="contact-tech-item">
+                    fp: {shortenTechnicalValue(contact.fingerprint)}
+                  </span>
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>

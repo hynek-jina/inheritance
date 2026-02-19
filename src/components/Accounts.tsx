@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { AppNetwork } from "../constants";
 import { NETWORK_CONFIG } from "../constants";
 import {
-  loadEvoluContactsWithOwnerInfoFromMnemonic,
-  type EvoluContactSummary,
-} from "../services/evolu-contacts";
-import {
+  deleteAccount,
   getNostrIdentity,
   getWalletFingerprint,
+  importInheritanceAccountShare,
+  isInheritanceAccountActivated,
+  renameAccount,
   updateAccountBalance,
 } from "../services/wallet";
 import type { Account } from "../types";
@@ -23,18 +24,23 @@ import { SendModal } from "./SendModal";
 interface AccountsProps {
   mnemonic: string;
   network: AppNetwork;
-  onNetworkChange: (network: AppNetwork) => void;
   onLogout: () => void;
+  initialView?: "accounts" | "contacts" | "accountDetail";
 }
 
 export function Accounts({
   mnemonic,
   network,
-  onNetworkChange,
   onLogout,
+  initialView = "accounts",
 }: AccountsProps) {
-  const [view, setView] = useState<"accounts" | "contacts">("accounts");
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const params = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [view, setView] = useState<"accounts" | "contacts">(() =>
+    initialView === "contacts" ? "contacts" : "accounts",
+  );
+  const [accounts, setAccounts] = useState<Account[]>(() => loadAccounts());
   const [detailAccount, setDetailAccount] = useState<Account | null>(null);
   const [modalAccount, setModalAccount] = useState<Account | null>(null);
   const [showReceive, setShowReceive] = useState(false);
@@ -42,84 +48,184 @@ export function Accounts({
   const [showInheritance, setShowInheritance] = useState(false);
   const [walletFingerprint, setWalletFingerprint] = useState("");
   const [myNpub, setMyNpub] = useState("");
-  const [contacts, setContacts] = useState<EvoluContactSummary[]>([]);
-  const [contactsOwnerInfo, setContactsOwnerInfo] = useState<string | null>(
-    null,
-  );
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsError, setContactsError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(accounts.length === 0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasInitialAccountsRef = useRef(accounts.length > 0);
+  const loadInProgressRef = useRef<Promise<void> | null>(null);
 
-  const loadAccountsData = useCallback(async () => {
-    setIsLoading(true);
-    setContactsLoading(true);
-    setContactsError(null);
-    try {
-      const loadedAccounts = loadAccounts();
-
-      // Update balances for all accounts
-      const updatedAccounts = await Promise.all(
-        loadedAccounts.map((account) =>
-          updateAccountBalance(account, mnemonic),
-        ),
-      );
-      const [fingerprint, nostrIdentity] = await Promise.all([
-        getWalletFingerprint(mnemonic),
-        getNostrIdentity(mnemonic),
-      ]);
-
-      setAccounts(updatedAccounts);
-      setWalletFingerprint(fingerprint);
-      setMyNpub(nostrIdentity.npub);
-      setDetailAccount((prev) => {
-        if (!prev) return prev;
-        return updatedAccounts.find((a) => a.id === prev.id) || prev;
-      });
-    } catch (error) {
-      console.error("Chyba při načítání účtů:", error);
-    } finally {
-      setIsLoading(false);
-    }
-
-    let loadedContacts: EvoluContactSummary[] = [];
-    let loadedOwnerInfo: string | null = null;
-    try {
-      const loaded = await loadEvoluContactsWithOwnerInfoFromMnemonic(mnemonic);
-      loadedContacts = loaded.contacts;
-
-      if (loaded.ownerInfo.pointer) {
-        const fallbackText = loaded.ownerInfo.previousPointer
-          ? ` (fallback: ${loaded.ownerInfo.previousPointer})`
-          : "";
-        loadedOwnerInfo = `${loaded.ownerInfo.pointer}${fallbackText}`;
-      } else if (loaded.ownerInfo.source === "direct-linky") {
-        loadedOwnerInfo = "direct-linky";
+  const loadAccountsData = useCallback(
+    async (blocking = false) => {
+      if (loadInProgressRef.current) {
+        await loadInProgressRef.current;
+        return;
       }
-    } catch (error) {
-      console.warn("Kontakty z Evolu se nepodařilo načíst:", error);
-      setContactsError("Kontakty z Evolu se nepodařilo načíst.");
-    } finally {
-      setContactsLoading(false);
-    }
 
-    setContacts(loadedContacts);
-    setContactsOwnerInfo(loadedOwnerInfo);
-  }, [mnemonic]);
+      const run = async () => {
+        if (blocking) {
+          setIsLoading(true);
+        } else {
+          setIsRefreshing(true);
+        }
+
+        try {
+          const loadedAccounts = loadAccounts();
+
+          // Update balances for all accounts
+          const updatedAccounts: Account[] = [];
+          for (const account of loadedAccounts) {
+            try {
+              updatedAccounts.push(
+                await updateAccountBalance(account, mnemonic),
+              );
+            } catch (error) {
+              console.error(`Chyba při aktualizaci účtu ${account.id}:`, error);
+              updatedAccounts.push(account);
+            }
+          }
+          const [fingerprint, nostrIdentity] = await Promise.all([
+            getWalletFingerprint(mnemonic),
+            getNostrIdentity(mnemonic),
+          ]);
+
+          setAccounts(updatedAccounts);
+          setWalletFingerprint(fingerprint);
+          setMyNpub(nostrIdentity.npub);
+          setDetailAccount((prev) => {
+            if (!prev) return prev;
+            return updatedAccounts.find((a) => a.id === prev.id) || prev;
+          });
+        } catch (error) {
+          console.error("Chyba při načítání účtů:", error);
+        } finally {
+          if (blocking) {
+            setIsLoading(false);
+          }
+          setIsRefreshing(false);
+        }
+      };
+
+      const request = run();
+      loadInProgressRef.current = request;
+      try {
+        await request;
+      } finally {
+        loadInProgressRef.current = null;
+      }
+    },
+    [mnemonic],
+  );
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
-      void loadAccountsData();
+      void loadAccountsData(!hasInitialAccountsRef.current);
+      hasInitialAccountsRef.current = true;
     }, 0);
-
     return () => {
       window.clearTimeout(timerId);
     };
   }, [network, loadAccountsData]);
 
+  // Handle URL changes for detail and contacts
+  useEffect(() => {
+    if (params.accountId && accounts.length > 0) {
+      const found = accounts.find((a) => a.id === params.accountId);
+      setDetailAccount(found || null);
+      setView(found ? "accounts" : "accounts");
+    } else if (location.pathname === "/contacts") {
+      setView("contacts");
+      setDetailAccount(null);
+    } else {
+      setView("accounts");
+      setDetailAccount(null);
+    }
+  }, [params.accountId, location.pathname, accounts]);
+
   const totalBalance = accounts.reduce((sum, acc) => sum + acc.balance, 0);
+  const primaryStandardAccountId = accounts.find(
+    (item) => item.type === "standard",
+  )?.id;
 
   const handleRefresh = async () => {
-    await loadAccountsData();
+    await loadAccountsData(false);
+  };
+
+  const handlePasteAccount = async () => {
+    const pasted = window.prompt("Vložte sdílená data dědického účtu:");
+    if (!pasted) {
+      return;
+    }
+
+    try {
+      const imported = await importInheritanceAccountShare(mnemonic, pasted);
+      await loadAccountsData(false);
+      navigate(`/account/${imported.id}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Účet se nepodařilo vložit";
+      window.alert(message);
+    }
+  };
+
+  const handleRenameAccount = async (
+    account: Account,
+    newName: string,
+  ): Promise<void> => {
+    renameAccount(account.id, newName);
+    await loadAccountsData(false);
+  };
+
+  const handleDeleteAccount = async (account: Account): Promise<void> => {
+    deleteAccount(account.id);
+
+    if (detailAccount?.id === account.id) {
+      navigate("/");
+    }
+
+    await loadAccountsData(false);
+  };
+
+  const getInheritanceVisualState = (
+    account: Account,
+  ): {
+    cardClass: "frozen" | "active" | "spendable";
+    icon: string;
+    statusText: string;
+  } => {
+    if (account.type !== "inheritance") {
+      return {
+        cardClass: "frozen",
+        icon: "",
+        statusText: "",
+      };
+    }
+
+    const role = account.localRole || "user";
+    const canLocalSpend =
+      role === "heir"
+        ? Boolean(account.inheritanceStatus?.canHeirSpend)
+        : Boolean(account.inheritanceStatus?.canUserSpend);
+
+    if (canLocalSpend) {
+      return {
+        cardClass: "spendable",
+        icon: "🍃",
+        statusText: "Můžete utrácet",
+      };
+    }
+
+    if (isInheritanceAccountActivated(account)) {
+      return {
+        cardClass: "active",
+        icon: "☀️",
+        statusText: "Aktivovaný účet",
+      };
+    }
+
+    return {
+      cardClass: "frozen",
+      icon: "🧊",
+      statusText: "Čekání na timelock",
+    };
   };
 
   if (isLoading) {
@@ -138,29 +244,24 @@ export function Accounts({
       <MenuBar
         mnemonic={mnemonic}
         network={network}
-        onNetworkChange={onNetworkChange}
+        onPasteAccount={handlePasteAccount}
         onOpenContacts={() => {
-          setDetailAccount(null);
-          setView("contacts");
+          navigate("/contacts");
         }}
         onLogout={onLogout}
       />
 
       {view === "contacts" ? (
-        <Contacts
-          npub={myNpub}
-          contacts={contacts}
-          ownerInfo={contactsOwnerInfo}
-          isLoading={contactsLoading}
-          error={contactsError}
-          onBack={() => setView("accounts")}
-        />
+        <Contacts npub={myNpub} onBack={() => navigate("/")} />
       ) : detailAccount ? (
         <AccountDetailPage
           account={detailAccount}
           mnemonic={mnemonic}
-          onBack={() => setDetailAccount(null)}
+          canDelete={detailAccount.id !== primaryStandardAccountId}
+          onBack={() => navigate("/")}
           onRefresh={handleRefresh}
+          onRename={handleRenameAccount}
+          onDelete={handleDeleteAccount}
           onReceive={(account) => {
             setModalAccount(account);
             setShowReceive(true);
@@ -180,6 +281,7 @@ export function Accounts({
                 onClick={handleRefresh}
                 className="refresh-btn"
                 title="Obnovit"
+                disabled={isRefreshing}
               >
                 ↻
               </button>
@@ -201,43 +303,43 @@ export function Accounts({
           {/* Accounts List */}
           <div className="accounts-list">
             <h2>Účty</h2>
-            {accounts.map((account) => (
-              <div
-                key={account.id}
-                className={`account-item ${account.type}`}
-                onClick={() => setDetailAccount(account)}
-              >
-                <div className="account-info">
-                  <div className="account-name">
+            {accounts.map((account) => {
+              const inheritanceState = getInheritanceVisualState(account);
+
+              return (
+                <div
+                  key={account.id}
+                  className={`account-item ${account.type} ${account.type === "inheritance" ? `inheritance-${inheritanceState.cardClass}` : ""}`}
+                  onClick={() => navigate(`/account/${account.id}`)}
+                >
+                  <div className="account-info">
+                    <div className="account-name">
+                      {account.type === "inheritance" && (
+                        <span className="inheritance-icon">
+                          {inheritanceState.icon}
+                        </span>
+                      )}
+                      {account.name}
+                    </div>
+                    <div className="account-type">
+                      {account.type === "inheritance"
+                        ? "Dědický účet"
+                        : "Standardní účet"}
+                    </div>
                     {account.type === "inheritance" && (
-                      <span className="inheritance-icon">🛡️</span>
-                    )}
-                    {account.name}
-                  </div>
-                  <div className="account-type">
-                    {account.type === "inheritance"
-                      ? "Dědický účet"
-                      : "Standardní účet"}
-                  </div>
-                  {account.type === "inheritance" &&
-                    account.inheritanceStatus && (
-                      <div className="inheritance-status">
-                        {account.inheritanceStatus.canUserSpend &&
-                          "✓ Můžete utrácet"}
-                        {account.inheritanceStatus.requiresMultisig &&
-                          "🔒 Multisig vyžadován"}
-                        {!account.inheritanceStatus.canUserSpend &&
-                          !account.inheritanceStatus.requiresMultisig &&
-                          account.balance > 0 &&
-                          "⏳ Čekání na timelock"}
+                      <div
+                        className={`inheritance-status inheritance-status-${inheritanceState.cardClass}`}
+                      >
+                        {inheritanceState.statusText}
                       </div>
                     )}
+                  </div>
+                  <div className="account-balance">
+                    {account.balance.toLocaleString("cs-CZ")} sats
+                  </div>
                 </div>
-                <div className="account-balance">
-                  {account.balance.toLocaleString("cs-CZ")} sats
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Add Inheritance Account Button */}
@@ -263,6 +365,7 @@ export function Accounts({
       {showSend && modalAccount && (
         <SendModal
           account={modalAccount}
+          accounts={accounts}
           mnemonic={mnemonic}
           onClose={() => setShowSend(false)}
           onSent={handleRefresh}
@@ -274,7 +377,8 @@ export function Accounts({
           mnemonic={mnemonic}
           onClose={() => {
             setShowInheritance(false);
-            handleRefresh();
+            setAccounts(loadAccounts());
+            void handleRefresh();
           }}
         />
       )}

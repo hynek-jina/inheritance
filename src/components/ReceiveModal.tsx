@@ -86,7 +86,7 @@ export function ReceiveModal({
               ? "Účet je už aktivovaný. Funding fáze je uzavřená a nové vklady už nepřijímá."
               : account.type === "inheritance"
                 ? "Tato adresa je funding multisig (uživatel + server). Po přijetí prostředků použijte Aktivovat prostředky pro přesun na dědický účet."
-                : "Naskenujte QR kód nebo zkopírujte adresu pro příjem testnet bitcoinů"}
+                : "Naskenujte QR kód nebo zkopírujte adresu pro příjem signet bitcoinů"}
           </p>
 
           <div className="qr-container">

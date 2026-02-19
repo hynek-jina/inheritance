@@ -1,4 +1,4 @@
-export type AppNetwork = "testnet" | "signet";
+export type AppNetwork = "signet";
 
 const BASE_TEST_LIKE_NETWORK = {
   messagePrefix: "\u0018Bitcoin Signed Message:\n",
@@ -13,11 +13,6 @@ const BASE_TEST_LIKE_NETWORK = {
 };
 
 export const NETWORK_CONFIG = {
-  testnet: {
-    label: "Testnet",
-    mempoolApi: "https://mempool.space/testnet4/api",
-    bitcoinNetwork: BASE_TEST_LIKE_NETWORK,
-  },
   signet: {
     label: "Signet",
     mempoolApi: "https://mempool.space/signet/api",
@@ -25,11 +20,9 @@ export const NETWORK_CONFIG = {
   },
 } as const;
 
-export const DEFAULT_NETWORK: AppNetwork = "testnet";
+export const DEFAULT_NETWORK: AppNetwork = "signet";
 
-export const TESTNET_NETWORK = NETWORK_CONFIG.testnet.bitcoinNetwork;
-
-// Default derivation path root for Taproot (BIP-86 testnet)
+// Default derivation path root for Taproot (BIP-86 signet/test-like)
 export const TAPROOT_PATH = "m/86'/1'";
 
 // Default spending conditions for inheritance accounts
@@ -46,4 +39,5 @@ export const STORAGE_KEYS = {
   ACCOUNTS: "btc_accounts",
   TRANSACTIONS: "btc_transactions",
   NETWORK: "btc_network",
+  CONTACTS: "btc_contacts",
 };

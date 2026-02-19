@@ -1,7 +1,7 @@
 {
-  "name": "Bitcoin Testnet Wallet",
-  "short_name": "BTC Testnet",
-  "description": "Bitcoin testnet peněženka s dědickými účty",
+  "name": "Bitcoin Signet Wallet",
+  "short_name": "BTC Signet",
+  "description": "Bitcoin signet peněženka s dědickými účty",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1a2e",

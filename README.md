@@ -1,4 +1,4 @@
-# Bitcoin Inheritance Wallet (Testnet/Signet)
+# Bitcoin Inheritance Wallet (Signet)
 
 This project is a React + TypeScript wallet focused on **inheritance account workflows** for Bitcoin-like test networks.
 
@@ -7,7 +7,7 @@ It supports two account types:
 - **Standard account** (single-sig Taproot spend)
 - **Inheritance account** (staged flow with funding multisig, activation, and time-gated spending)
 
-The app runs on **Testnet4** and **Signet** through `mempool.space` APIs.
+The app runs on **Signet** through `mempool.space` APIs.
 
 ## What the App Does Today
 
@@ -15,7 +15,7 @@ The app runs on **Testnet4** and **Signet** through `mempool.space` APIs.
 
 - Creates/restores a wallet from a mnemonic (SLIP39 recovery).
 - Shows total balance and account-level balances.
-- Switches between `testnet` and `signet`.
+- Uses `signet` only.
 
 ### 2) Standard Accounts
 

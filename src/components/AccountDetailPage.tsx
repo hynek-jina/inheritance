@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   activateInheritanceFunds,
+  exportInheritanceAccountShare,
   getInheritanceAccountDetails,
   getStandardAccountDetails,
   isInheritanceAccountActivated,
@@ -81,8 +82,11 @@ function getInheritanceSendHint(
 interface AccountDetailPageProps {
   account: Account;
   mnemonic: string;
+  canDelete: boolean;
   onBack: () => void;
   onRefresh: () => Promise<void>;
+  onRename: (account: Account, newName: string) => Promise<void>;
+  onDelete: (account: Account) => Promise<void>;
   onReceive: (account: Account) => void;
   onSend: (account: Account) => void;
 }
@@ -90,8 +94,11 @@ interface AccountDetailPageProps {
 export function AccountDetailPage({
   account,
   mnemonic,
+  canDelete,
   onBack,
   onRefresh,
+  onRename,
+  onDelete,
   onReceive,
   onSend,
 }: AccountDetailPageProps) {
@@ -100,9 +107,15 @@ export function AccountDetailPage({
   const [inheritanceDetails, setInheritanceDetails] =
     useState<InheritanceAccountDetails | null>(null);
   const [isInfoExpanded, setIsInfoExpanded] = useState(false);
+  const [isTxHistoryExpanded, setIsTxHistoryExpanded] = useState(false);
   const [isAddressAuditExpanded, setIsAddressAuditExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isActivating, setIsActivating] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isCopyingAccount, setIsCopyingAccount] = useState(false);
+  const [copyAccountMessage, setCopyAccountMessage] = useState("");
+  const [copyAccountError, setCopyAccountError] = useState("");
   const [activationMessage, setActivationMessage] = useState("");
   const [activationError, setActivationError] = useState("");
   const isStandard = account.type === "standard";
@@ -136,6 +149,7 @@ export function AccountDetailPage({
 
   useEffect(() => {
     setIsInfoExpanded(false);
+    setIsTxHistoryExpanded(false);
     setIsAddressAuditExpanded(false);
   }, [account.id]);
 
@@ -169,10 +183,9 @@ export function AccountDetailPage({
   const isActivatedInheritance =
     isInheritance && isInheritanceAccountActivated(account);
   const showOnlySend = isInheritance && isActivatedInheritance;
-  const showActivateAndReceive =
+  const showActivateActionOnly =
     isInheritance && !isActivatedInheritance && pendingActivationBalance > 0;
-  const showOnlyReceive =
-    isInheritance && !isActivatedInheritance && pendingActivationBalance <= 0;
+  const hasActionButtons = isStandard || showActivateActionOnly || showOnlySend;
 
   const handleActivate = async () => {
     if (!isInheritance) {
@@ -200,6 +213,80 @@ export function AccountDetailPage({
       setActivationError(message);
     } finally {
       setIsActivating(false);
+    }
+  };
+
+  const handleCopyInheritanceAccount = async () => {
+    if (!isInheritance) {
+      return;
+    }
+
+    setCopyAccountMessage("");
+    setCopyAccountError("");
+    setIsCopyingAccount(true);
+
+    try {
+      const share = await exportInheritanceAccountShare(mnemonic, account);
+      await navigator.clipboard.writeText(share);
+      setCopyAccountMessage("Údaje dědického účtu byly zkopírovány.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Účet se nepodařilo zkopírovat";
+      setCopyAccountError(message);
+    } finally {
+      setIsCopyingAccount(false);
+    }
+  };
+
+  const handleRenameAccount = async () => {
+    const nextName = window.prompt("Nový název účtu:", account.name);
+    if (nextName === null) {
+      return;
+    }
+
+    setCopyAccountMessage("");
+    setCopyAccountError("");
+    setActivationMessage("");
+    setActivationError("");
+    setIsRenaming(true);
+
+    try {
+      await onRename(account, nextName);
+      await loadDetails();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Účet se nepodařilo přejmenovat";
+      setCopyAccountError(message);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirmed = window.confirm(
+      `Opravdu chcete smazat účet \"${account.name}\"?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setCopyAccountMessage("");
+    setCopyAccountError("");
+    setActivationMessage("");
+    setActivationError("");
+    setIsDeleting(true);
+
+    try {
+      await onDelete(account);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Účet se nepodařilo smazat";
+      setCopyAccountError(message);
+      setIsDeleting(false);
     }
   };
 
@@ -250,7 +337,9 @@ export function AccountDetailPage({
         </button>
       </div>
 
-      <div className="detail-balance-card">
+      <div
+        className={`detail-balance-card ${account.type === "inheritance" ? "inheritance" : ""}`}
+      >
         <div className="detail-account-name">{account.name}</div>
         <div className="detail-account-type">
           {account.type === "standard" ? "Standardní účet" : "Dědický účet"}
@@ -260,68 +349,53 @@ export function AccountDetailPage({
         </div>
       </div>
 
-      <div
-        className={`detail-action-row ${isStandard || showActivateAndReceive ? "" : "single"}`}
-      >
-        {isStandard && (
-          <button
-            className="detail-action-btn receive"
-            onClick={() => onReceive(account)}
-          >
-            Přijmout prostředky
-          </button>
-        )}
+      {hasActionButtons && (
+        <div
+          className={`detail-action-row ${isStandard || showActivateActionOnly ? "" : "single"}`}
+        >
+          {isStandard && (
+            <button
+              className="detail-action-btn receive"
+              onClick={() => onReceive(account)}
+            >
+              Přijmout prostředky
+            </button>
+          )}
 
-        {isStandard && (
-          <button
-            className="detail-action-btn send"
-            onClick={() => onSend(account)}
-          >
-            Odeslat
-          </button>
-        )}
+          {isStandard && (
+            <button
+              className="detail-action-btn send"
+              onClick={() => onSend(account)}
+            >
+              Odeslat
+            </button>
+          )}
 
-        {showOnlyReceive && (
-          <button
-            className="detail-action-btn receive"
-            onClick={() => onReceive(account)}
-          >
-            Přijmout
-          </button>
-        )}
-
-        {showActivateAndReceive && (
-          <>
+          {showActivateActionOnly && (
             <button
               className="detail-action-btn activate"
               disabled={isActivating}
               onClick={handleActivate}
               title="Přesunout prostředky z uživatel+server multisigu do dědického účtu"
             >
-              {isActivating ? "Aktivace..." : "Aktivovat"}
+              {isActivating ? "Aktivace..." : "🌱 Aktivovat"}
             </button>
-            <button
-              className="detail-action-btn receive secondary"
-              onClick={() => onReceive(account)}
-            >
-              Přijmout další prostředky
-            </button>
-          </>
-        )}
+          )}
 
-        {showOnlySend && (
-          <button
-            className="detail-action-btn send"
-            onClick={() => onSend(account)}
-            disabled={inheritanceSendHint?.disabled ?? true}
-            title={
-              inheritanceSendHint?.reason || "Odeslání zatím není dostupné"
-            }
-          >
-            Odeslat
-          </button>
-        )}
-      </div>
+          {showOnlySend && (
+            <button
+              className="detail-action-btn send"
+              onClick={() => onSend(account)}
+              disabled={inheritanceSendHint?.disabled ?? true}
+              title={
+                inheritanceSendHint?.reason || "Odeslání zatím není dostupné"
+              }
+            >
+              Odeslat
+            </button>
+          )}
+        </div>
+      )}
 
       {account.type === "inheritance" &&
         isActivatedInheritance &&
@@ -335,12 +409,21 @@ export function AccountDetailPage({
         </div>
       )}
 
-      {account.type === "inheritance" && showActivateAndReceive && (
+      {account.type === "inheritance" && showActivateActionOnly && (
         <>
           <div className="detail-send-hint">
             {`Čeká na aktivaci: ${pendingActivationBalance.toLocaleString("cs-CZ")} sats`}
           </div>
         </>
+      )}
+
+      {copyAccountMessage && (
+        <div className="detail-inline-message success">
+          {copyAccountMessage}
+        </div>
+      )}
+      {copyAccountError && (
+        <div className="detail-inline-message error">{copyAccountError}</div>
       )}
 
       {activationMessage && (
@@ -361,6 +444,41 @@ export function AccountDetailPage({
         </button>
         {isInfoExpanded && isLoading && (
           <div className="detail-loading">Načítání detailů...</div>
+        )}
+
+        {isInfoExpanded && !isLoading && (
+          <div className="detail-mini-actions">
+            <button
+              type="button"
+              className="detail-mini-btn"
+              disabled={isRenaming || isDeleting}
+              onClick={handleRenameAccount}
+            >
+              {isRenaming ? "Přejmenovávám..." : "Přejmenovat účet"}
+            </button>
+
+            {account.type === "inheritance" && (
+              <button
+                type="button"
+                className="detail-mini-btn"
+                disabled={isCopyingAccount}
+                onClick={handleCopyInheritanceAccount}
+              >
+                {isCopyingAccount ? "Kopíruji..." : "Kopírovat účet"}
+              </button>
+            )}
+
+            {canDelete && (
+              <button
+                type="button"
+                className="detail-mini-btn danger"
+                disabled={isDeleting || isRenaming}
+                onClick={handleDeleteAccount}
+              >
+                {isDeleting ? "Mažu..." : "Smazat účet"}
+              </button>
+            )}
+          </div>
         )}
 
         {isInfoExpanded &&
@@ -448,31 +566,40 @@ export function AccountDetailPage({
       </div>
 
       <div className="detail-info-card">
-        <h3>Transakční historie</h3>
-        {!isLoading && transactions.length === 0 && (
+        <button
+          type="button"
+          className="detail-collapse-btn"
+          onClick={() => setIsTxHistoryExpanded((value) => !value)}
+        >
+          <h3>Transakční historie</h3>
+          <span>{isTxHistoryExpanded ? "−" : "+"}</span>
+        </button>
+
+        {isTxHistoryExpanded && !isLoading && transactions.length === 0 && (
           <div className="detail-loading">Zatím bez transakcí.</div>
         )}
 
-        {transactions.map((tx) => (
-          <div key={tx.txid} className="tx-item">
-            <div className="tx-main-row">
-              <span
-                className={`tx-type ${tx.type === "incoming" ? "in" : "out"}`}
-              >
-                {tx.type === "incoming" ? "Příchozí" : "Odchozí"}
-              </span>
-              <span className="tx-amount">
-                {tx.amount.toLocaleString("cs-CZ")} sats
-              </span>
+        {isTxHistoryExpanded &&
+          transactions.map((tx) => (
+            <div key={tx.txid} className="tx-item">
+              <div className="tx-main-row">
+                <span
+                  className={`tx-type ${tx.type === "incoming" ? "in" : "out"}`}
+                >
+                  {tx.type === "incoming" ? "Příchozí" : "Odchozí"}
+                </span>
+                <span className="tx-amount">
+                  {tx.amount.toLocaleString("cs-CZ")} sats
+                </span>
+              </div>
+              <div className="tx-sub-row">
+                <span className="mono">{tx.txid.slice(0, 10)}…</span>
+                <span>
+                  {new Date(tx.timestamp * 1000).toLocaleString("cs-CZ")}
+                </span>
+              </div>
             </div>
-            <div className="tx-sub-row">
-              <span className="mono">{tx.txid.slice(0, 10)}…</span>
-              <span>
-                {new Date(tx.timestamp * 1000).toLocaleString("cs-CZ")}
-              </span>
-            </div>
-          </div>
-        ))}
+          ))}
       </div>
 
       <div className="detail-info-card">
