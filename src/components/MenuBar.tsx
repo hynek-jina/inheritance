@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppNetwork } from "../constants";
 import { NETWORK_CONFIG } from "../constants";
 import { clearWallet } from "../utils/storage";
@@ -21,6 +21,42 @@ export function MenuBar({
 }: MenuBarProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [copied, setCopied] = useState(false);
+  const menuContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+
+      if (menuContainerRef.current?.contains(target)) {
+        return;
+      }
+
+      setShowMenu(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showMenu]);
 
   const handleCopySeed = () => {
     navigator.clipboard.writeText(mnemonic);
@@ -50,7 +86,7 @@ export function MenuBar({
         Be Cool · {NETWORK_CONFIG[network].label}
       </div>
 
-      <div className="menu-container">
+      <div className="menu-container" ref={menuContainerRef}>
         <button className="menu-button" onClick={() => setShowMenu(!showMenu)}>
           <span></span>
           <span></span>

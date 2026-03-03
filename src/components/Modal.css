@@ -113,9 +113,9 @@
 }
 
 .copy-btn {
-  background: rgba(247, 147, 26, 0.2);
+  background: rgba(143, 216, 255, 0.2);
   border: none;
-  color: #f7931a;
+  color: #c6ecff;
   padding: 10px 16px;
   border-radius: 8px;
   cursor: pointer;
@@ -124,13 +124,13 @@
 }
 
 .copy-btn:hover {
-  background: rgba(247, 147, 26, 0.32);
+  background: rgba(143, 216, 255, 0.3);
   transform: translateY(-1px);
 }
 
 .copy-btn.copied {
-  background: rgba(76, 175, 80, 0.2);
-  color: #4caf50;
+  background: rgba(143, 216, 255, 0.3);
+  color: #c6ecff;
 }
 
 .network-badge {
@@ -171,9 +171,9 @@
 
 .form-input:focus {
   outline: none;
-  border-color: #f7931a;
+  border-color: #8fd8ff;
   background: rgba(255, 255, 255, 0.09);
-  box-shadow: 0 0 0 3px rgba(247, 147, 26, 0.22);
+  box-shadow: 0 0 0 3px rgba(143, 216, 255, 0.22);
 }
 
 .form-input::placeholder {
@@ -184,6 +184,21 @@
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
   margin-top: 6px;
+}
+
+.scan-preview-box {
+  margin-top: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  min-height: 180px;
+}
+
+.scan-preview-video {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
 }
 
 /* Fee options */
@@ -212,14 +227,14 @@
 }
 
 .fee-btn.active {
-  background: rgba(247, 147, 26, 0.2);
-  color: #f7931a;
+  background: rgba(143, 216, 255, 0.2);
+  color: #c6ecff;
 }
 
 /* Messages */
 .error-message {
-  background: rgba(244, 67, 54, 0.2);
-  color: #ff7b70;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.92);
   padding: 12px 16px;
   border-radius: 10px;
   font-size: 0.875rem;
@@ -227,8 +242,8 @@
 }
 
 .success-message {
-  background: rgba(76, 175, 80, 0.2);
-  color: #70d17c;
+  background: rgba(143, 216, 255, 0.2);
+  color: #c6ecff;
   padding: 12px 16px;
   border-radius: 10px;
   font-size: 0.875rem;
@@ -272,7 +287,7 @@
 }
 
 .step.active {
-  background: #f7931a;
+  background: #8fd8ff;
   color: white;
 }
 
@@ -306,7 +321,7 @@
 }
 
 .heir-item.selected {
-  background: rgba(247, 147, 26, 0.14);
+  background: rgba(143, 216, 255, 0.2);
 }
 
 .heir-icon {

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  calculateMaxSendAmountNoChange,
   completeInheritanceTransactionFromPsbt,
   createInheritancePartiallySignedTransaction,
   isInheritanceAccountActivated,
@@ -8,9 +9,9 @@ import {
 import type { Account } from "../types";
 import "./Modal.css";
 
-interface InheritanceRecipientOption {
+interface OwnRecipientOption {
   accountId: string;
-  accountName: string;
+  accountLabel: string;
   address: string;
 }
 
@@ -29,23 +30,51 @@ export function SendModal({
   onClose,
   onSent,
 }: SendModalProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanFrameRef = useRef<number | null>(null);
+
   const isInheritance = account.type === "inheritance";
-  const availableInheritanceTargets: InheritanceRecipientOption[] = accounts
+  const availableOwnAccountTargets: OwnRecipientOption[] = accounts
     .filter(
       (candidate) =>
-        candidate.type === "inheritance" &&
         candidate.id !== account.id &&
-        !isInheritanceAccountActivated(candidate),
+        (candidate.type !== "inheritance" ||
+          !isInheritanceAccountActivated(candidate)),
     )
     .map((candidate) => {
-      const fundingAddresses = candidate.derivedAddresses
-        .filter((address) => address.role === "funding" && !address.change)
+      const standardReceiveAddresses = candidate.derivedAddresses
+        .filter((address) => !address.change && candidate.type === "standard")
+        .sort((a, b) => a.index - b.index);
+
+      const inheritanceFundingAddresses = candidate.derivedAddresses
+        .filter(
+          (address) =>
+            candidate.type === "inheritance" &&
+            address.role === "funding" &&
+            !address.change,
+        )
+        .sort((a, b) => a.index - b.index);
+
+      const inheritanceActiveAddresses = candidate.derivedAddresses
+        .filter(
+          (address) =>
+            candidate.type === "inheritance" &&
+            (address.role === "active" || address.role === undefined) &&
+            !address.change,
+        )
         .sort((a, b) => a.index - b.index);
 
       const preferredAddress =
-        fundingAddresses.find((address) => !address.used) ||
-        fundingAddresses[0] ||
-        null;
+        candidate.type === "standard"
+          ? standardReceiveAddresses.find((address) => !address.used) ||
+            standardReceiveAddresses[0] ||
+            null
+          : inheritanceFundingAddresses.find((address) => !address.used) ||
+            inheritanceFundingAddresses[0] ||
+            inheritanceActiveAddresses.find((address) => !address.used) ||
+            inheritanceActiveAddresses[0] ||
+            null;
 
       if (!preferredAddress) {
         return null;
@@ -53,23 +82,23 @@ export function SendModal({
 
       return {
         accountId: candidate.id,
-        accountName: candidate.name,
+        accountLabel: `${candidate.name} (${candidate.type === "standard" ? "Standardní" : "Dědický"})`,
         address: preferredAddress.address,
       };
     })
     .filter(
-      (item): item is InheritanceRecipientOption =>
+      (item): item is OwnRecipientOption =>
         item !== null && Boolean(item.address),
     );
 
   const [recipientMode, setRecipientMode] = useState<"address" | "account">(
     "address",
   );
-  const [selectedInheritanceAccountId, setSelectedInheritanceAccountId] =
-    useState("");
+  const [selectedOwnAccountId, setSelectedOwnAccountId] = useState("");
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [fee, setFee] = useState("5");
+  const [isSendAllMode, setIsSendAllMode] = useState(false);
   const [inheritanceMode, setInheritanceMode] = useState<"create" | "finalize">(
     "create",
   );
@@ -78,13 +107,129 @@ export function SendModal({
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isScanningRecipient, setIsScanningRecipient] = useState(false);
+  const [scanError, setScanError] = useState("");
+
+  const stopScanner = () => {
+    if (scanFrameRef.current !== null) {
+      window.cancelAnimationFrame(scanFrameRef.current);
+      scanFrameRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setIsScanningRecipient(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, []);
+
+  const parseScannedAddress = (rawValue: string): string => {
+    const trimmed = rawValue.trim();
+
+    if (trimmed.toLowerCase().startsWith("bitcoin:")) {
+      const withoutScheme = trimmed.slice("bitcoin:".length);
+      return withoutScheme.split("?")[0].trim();
+    }
+
+    return trimmed;
+  };
+
+  const handleStartScan = async () => {
+    setError("");
+    setSuccess("");
+    setScanError("");
+
+    const BarcodeDetectorCtor = (
+      window as Window & {
+        BarcodeDetector?: new (options?: { formats?: string[] }) => {
+          detect: (
+            image: ImageBitmapSource,
+          ) => Promise<Array<{ rawValue?: string }>>;
+        };
+      }
+    ).BarcodeDetector;
+
+    if (!BarcodeDetectorCtor || !navigator.mediaDevices?.getUserMedia) {
+      setScanError("Skenování QR není v tomto prohlížeči podporované.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+      });
+
+      streamRef.current = stream;
+      setIsScanningRecipient(true);
+
+      window.setTimeout(() => {
+        if (!videoRef.current) {
+          return;
+        }
+
+        videoRef.current.srcObject = stream;
+        void videoRef.current.play();
+
+        const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
+
+        const scanLoop = async () => {
+          if (!videoRef.current) {
+            return;
+          }
+
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            const scanned = barcodes[0]?.rawValue;
+
+            if (scanned) {
+              const parsedAddress = parseScannedAddress(scanned);
+              if (validateAddress(parsedAddress)) {
+                setRecipient(parsedAddress);
+                setRecipientMode("address");
+                setSuccess("Adresa příjemce naskenována.");
+                stopScanner();
+                return;
+              }
+
+              setScanError("QR neobsahuje platnou signet adresu.");
+            }
+          } catch {
+            setScanError("Skenování se nepodařilo. Zkuste to znovu.");
+          }
+
+          scanFrameRef.current = window.requestAnimationFrame(scanLoop);
+        };
+
+        scanFrameRef.current = window.requestAnimationFrame(scanLoop);
+      }, 0);
+    } catch {
+      setScanError("Nepodařilo se získat přístup ke kameře.");
+      stopScanner();
+    }
+  };
 
   const resolvedRecipientAddress =
     recipientMode === "account"
-      ? availableInheritanceTargets.find(
-          (target) => target.accountId === selectedInheritanceAccountId,
+      ? availableOwnAccountTargets.find(
+          (target) => target.accountId === selectedOwnAccountId,
         )?.address || ""
       : recipient;
+
+  const applyFeeRate = (value: string) => {
+    setFee(value);
+    setIsSendAllMode(false);
+  };
 
   const validateAddress = (addr: string): boolean => {
     return (
@@ -144,6 +289,7 @@ export function SendModal({
         resolvedRecipientAddress,
         amountSats,
         feeRate,
+        isSendAllMode,
       );
       setSuccess(`Transakce odeslána. TXID: ${txid}`);
 
@@ -182,6 +328,7 @@ export function SendModal({
         resolvedRecipientAddress,
         validated.amountSats,
         validated.feeRate,
+        isSendAllMode,
       );
 
       setExportedPsbt(draft.psbt);
@@ -243,6 +390,36 @@ export function SendModal({
     }
   };
 
+  const handleSendAll = async () => {
+    setError("");
+    setSuccess("");
+
+    const feeRate = parseInt(fee, 10);
+    if (Number.isNaN(feeRate) || feeRate <= 0) {
+      setError("Zadejte platný fee");
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const { amountSats, fee: calculatedFee } =
+        await calculateMaxSendAmountNoChange(mnemonic, account, feeRate);
+      setAmount(String(amountSats));
+      setIsSendAllMode(true);
+      setSuccess(
+        `Nastaveno maximum ${amountSats.toLocaleString("cs-CZ")} sats (fee ${calculatedFee.toLocaleString("cs-CZ")} sats).`,
+      );
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Částku pro odeslání všeho se nepodařilo spočítat";
+      setError(message);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -278,7 +455,7 @@ export function SendModal({
 
           {(!isInheritance || inheritanceMode === "create") && (
             <>
-              {availableInheritanceTargets.length > 0 && (
+              {availableOwnAccountTargets.length > 0 && (
                 <div className="form-group">
                   <label>Cíl odeslání</label>
                   <div className="fee-options">
@@ -294,7 +471,7 @@ export function SendModal({
                       onClick={() => setRecipientMode("account")}
                       className={`fee-btn ${recipientMode === "account" ? "active" : ""}`}
                     >
-                      Dědický účet
+                      Můj účet
                     </button>
                   </div>
                 </div>
@@ -303,36 +480,60 @@ export function SendModal({
               <div className="form-group">
                 <label>
                   {recipientMode === "account"
-                    ? "Vyberte dědický účet"
+                    ? "Vyberte vlastní účet"
                     : "Adresa příjemce"}
                 </label>
                 {recipientMode === "account" ? (
                   <select
-                    value={selectedInheritanceAccountId}
-                    onChange={(e) =>
-                      setSelectedInheritanceAccountId(e.target.value)
-                    }
+                    value={selectedOwnAccountId}
+                    onChange={(e) => setSelectedOwnAccountId(e.target.value)}
                     className="form-input"
                   >
                     <option value="">Vyberte účet</option>
-                    {availableInheritanceTargets.map((target) => (
+                    {availableOwnAccountTargets.map((target) => (
                       <option key={target.accountId} value={target.accountId}>
-                        {target.accountName}
+                        {target.accountLabel}
                       </option>
                     ))}
                   </select>
                 ) : (
-                  <input
-                    type="text"
-                    value={recipient}
-                    onChange={(e) => setRecipient(e.target.value)}
-                    placeholder="tb1..."
-                    className="form-input"
-                  />
+                  <>
+                    <input
+                      type="text"
+                      value={recipient}
+                      onChange={(e) => setRecipient(e.target.value)}
+                      placeholder="tb1..."
+                      className="form-input"
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary btn-full"
+                      onClick={
+                        isScanningRecipient ? stopScanner : handleStartScan
+                      }
+                    >
+                      {isScanningRecipient
+                        ? "Zastavit skenování"
+                        : "Naskenovat adresu"}
+                    </button>
+
+                    {isScanningRecipient && (
+                      <div className="scan-preview-box">
+                        <video
+                          ref={videoRef}
+                          className="scan-preview-video"
+                          playsInline
+                          muted
+                        />
+                      </div>
+                    )}
+
+                    {scanError && <div className="input-hint">{scanError}</div>}
+                  </>
                 )}
                 {recipientMode === "account" && resolvedRecipientAddress && (
                   <div className="input-hint mono">
-                    Funding adresa: {resolvedRecipientAddress}
+                    Adresa účtu: {resolvedRecipientAddress}
                   </div>
                 )}
               </div>
@@ -342,13 +543,24 @@ export function SendModal({
                 <input
                   type="text"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    setIsSendAllMode(false);
+                  }}
                   placeholder="50000"
                   className="form-input"
                 />
                 <div className="input-hint">
                   Dostupné: {account.balance.toLocaleString("cs-CZ")} sats
                 </div>
+                <button
+                  type="button"
+                  className="btn-secondary btn-full"
+                  onClick={handleSendAll}
+                  disabled={isSending}
+                >
+                  Odeslat vše
+                </button>
               </div>
 
               <div className="form-group">
@@ -356,21 +568,21 @@ export function SendModal({
                 <div className="fee-options">
                   <button
                     type="button"
-                    onClick={() => setFee("1")}
+                    onClick={() => applyFeeRate("1")}
                     className={`fee-btn ${fee === "1" ? "active" : ""}`}
                   >
                     Slow (1)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFee("5")}
+                    onClick={() => applyFeeRate("5")}
                     className={`fee-btn ${fee === "5" ? "active" : ""}`}
                   >
                     Normal (5)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFee("20")}
+                    onClick={() => applyFeeRate("20")}
                     className={`fee-btn ${fee === "20" ? "active" : ""}`}
                   >
                     Fast (20)

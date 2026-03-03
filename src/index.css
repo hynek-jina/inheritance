@@ -4,6 +4,30 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 100%;
+  background-color: #121733;
+}
+
+html {
+  overscroll-behavior-y: none;
+  background:
+    radial-gradient(
+      circle at 18% -10%,
+      rgba(143, 216, 255, 0.18),
+      transparent 42%
+    ),
+    radial-gradient(
+      circle at 90% 0%,
+      rgba(143, 216, 255, 0.12),
+      transparent 38%
+    ),
+    linear-gradient(145deg, #121733 0%, #151d3a 45%, #182141 100%);
+}
+
 body {
   font-family:
     Inter,
@@ -31,6 +55,8 @@ body {
   color: #fff;
   min-height: 100vh;
   letter-spacing: 0.01em;
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
 }
 
 .app-loading {

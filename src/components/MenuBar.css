@@ -1,4 +1,7 @@
 .menu-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5000;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -19,6 +22,7 @@
 
 .menu-container {
   position: relative;
+  z-index: 5100;
 }
 
 .menu-button {
@@ -61,7 +65,7 @@
   padding: 8px;
   min-width: 226px;
   box-shadow: 0 16px 48px rgba(2, 6, 23, 0.55);
-  z-index: 1001;
+  z-index: 5200;
   backdrop-filter: blur(14px);
 }
 
@@ -103,5 +107,5 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 999;
+  z-index: 5150;
 }

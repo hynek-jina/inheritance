@@ -12,7 +12,6 @@ interface InheritanceModalProps {
 
 export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
   const [contacts] = useState<Contact[]>(() => loadContacts());
-  const [localRole, setLocalRole] = useState<"user" | "heir">("user");
   const [accountName, setAccountName] = useState("Dědický účet");
   const [selectedContactId, setSelectedContactId] = useState("");
   const [multisigAfterBlocks, setMultisigAfterBlocks] = useState(
@@ -101,13 +100,11 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
         accountName.trim(),
         {
           id: `heir-${Date.now()}`,
-          name:
-            selectedContact.name ||
-            (localRole === "user" ? "Dědic" : "Uživatel"),
+          name: selectedContact.name || "Dědic",
           fingerprint: normalizedFingerprint,
           xpub: normalizedXpub,
         },
-        localRole,
+        "user",
         spendingConditions,
       );
       onClose();
@@ -152,30 +149,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
           </div>
 
           <div className="form-group">
-            <label>Moje role</label>
-            <div className="fee-options">
-              <button
-                type="button"
-                className={`fee-btn ${localRole === "user" ? "active" : ""}`}
-                onClick={() => setLocalRole("user")}
-              >
-                Jsem uživatel
-              </button>
-              <button
-                type="button"
-                className={`fee-btn ${localRole === "heir" ? "active" : ""}`}
-                onClick={() => setLocalRole("heir")}
-              >
-                Jsem dědic
-              </button>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>
-              Kontakt protistrany (
-              {localRole === "user" ? "dědice" : "uživatele"})
-            </label>
+            <label>Kontakt dědice</label>
             <select
               value={selectedContactId}
               onChange={(e) => setSelectedContactId(e.target.value)}

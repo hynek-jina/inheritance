@@ -1246,6 +1246,11 @@ export interface InheritancePartialTransactionResult {
   changeAddress: string;
 }
 
+export interface MaxSendNoChangeResult {
+  amountSats: number;
+  fee: number;
+}
+
 function estimateTaprootFee(
   inputCount: number,
   outputCount: number,
@@ -1262,6 +1267,101 @@ function estimateInheritanceMultisigFee(
 ): number {
   const estimatedVbytes = 12 + inputCount * 110 + outputCount * 43;
   return Math.ceil(estimatedVbytes * feeRate);
+}
+
+export async function calculateMaxSendAmountNoChange(
+  mnemonic: string,
+  account: Account,
+  feeRate: number,
+): Promise<MaxSendNoChangeResult> {
+  if (!Number.isFinite(feeRate) || feeRate <= 0) {
+    throw new Error("Neplatný fee rate");
+  }
+
+  const accounts = loadAccounts();
+  const accountIndex = accounts.findIndex((item) => item.id === account.id);
+  if (accountIndex === -1) {
+    throw new Error("Účet nebyl nalezen");
+  }
+
+  const accountRef = accounts[accountIndex];
+
+  if (accountRef.type === "inheritance") {
+    if (!isInheritanceAccountActivated(accountRef)) {
+      throw new Error("Účet není aktivovaný. Nejprve aktivujte prostředky.");
+    }
+
+    if (!accountRef.inheritanceStatus?.requiresMultisig) {
+      throw new Error("Společné utrácení zatím není dostupné");
+    }
+
+    const inheritanceUtxos = await collectInheritanceUtxos(
+      accountRef,
+      "active",
+      true,
+    );
+    if (inheritanceUtxos.length === 0) {
+      throw new Error("Žádné UTXO k utracení");
+    }
+
+    const total = inheritanceUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
+    const fee = estimateInheritanceMultisigFee(
+      inheritanceUtxos.length,
+      1,
+      feeRate,
+    );
+    const amountSats = total - fee;
+
+    if (amountSats <= 0) {
+      throw new Error("Nedostatek prostředků po odečtení poplatku");
+    }
+
+    return { amountSats, fee };
+  }
+
+  const masterKey = await getMasterKeyFromMnemonic(mnemonic);
+  const network = getActiveBitcoinNetwork();
+  const allUtxos: SpendableUtxo[] = [];
+
+  for (const derivedAddress of accountRef.derivedAddresses) {
+    const utxos = await getAddressUTXOs(derivedAddress.address);
+    const change = derivedAddress.change ? 1 : 0;
+    for (const utxo of utxos) {
+      allUtxos.push({
+        txid: utxo.txid,
+        vout: utxo.vout,
+        value: utxo.value,
+        address: derivedAddress.address,
+        addressIndex: derivedAddress.index,
+        change,
+      });
+    }
+  }
+
+  if (allUtxos.length === 0) {
+    throw new Error("Žádné UTXO k utracení");
+  }
+
+  for (const utxo of allUtxos) {
+    resolveTaprootUtxoPath(
+      masterKey,
+      accountIndex,
+      accounts.length,
+      accountRef,
+      utxo,
+      network,
+    );
+  }
+
+  const total = allUtxos.reduce((sum, utxo) => sum + utxo.value, 0);
+  const fee = estimateTaprootFee(allUtxos.length, 1, feeRate);
+  const amountSats = total - fee;
+
+  if (amountSats <= 0) {
+    throw new Error("Nedostatek prostředků po odečtení poplatku");
+  }
+
+  return { amountSats, fee };
 }
 
 function toXOnly(pubKey: Buffer): Buffer {
@@ -1594,6 +1694,7 @@ export async function createInheritancePartiallySignedTransaction(
   recipientAddress: string,
   amountSats: number,
   feeRate: number,
+  forceUseAllInputs = false,
 ): Promise<InheritancePartialTransactionResult> {
   if (account.type !== "inheritance") {
     throw new Error("Tato funkce je pouze pro dědický účet");
@@ -1646,30 +1747,34 @@ export async function createInheritancePartiallySignedTransaction(
 
   allUtxos.sort((a, b) => b.value - a.value);
 
-  const selected: SpendableUtxo[] = [];
-  let selectedValue = 0;
+  const selected: SpendableUtxo[] = forceUseAllInputs ? [...allUtxos] : [];
+  let selectedValue = forceUseAllInputs
+    ? allUtxos.reduce((sum, utxo) => sum + utxo.value, 0)
+    : 0;
   const dustLimit = 330;
 
-  for (const utxo of allUtxos) {
-    selected.push(utxo);
-    selectedValue += utxo.value;
+  if (!forceUseAllInputs) {
+    for (const utxo of allUtxos) {
+      selected.push(utxo);
+      selectedValue += utxo.value;
 
-    const feeWithChange = estimateInheritanceMultisigFee(
-      selected.length,
-      2,
-      feeRate,
-    );
-    if (selectedValue >= amountSats + feeWithChange) {
-      break;
-    }
+      const feeWithChange = estimateInheritanceMultisigFee(
+        selected.length,
+        2,
+        feeRate,
+      );
+      if (selectedValue >= amountSats + feeWithChange) {
+        break;
+      }
 
-    const feeNoChange = estimateInheritanceMultisigFee(
-      selected.length,
-      1,
-      feeRate,
-    );
-    if (selectedValue >= amountSats + feeNoChange) {
-      break;
+      const feeNoChange = estimateInheritanceMultisigFee(
+        selected.length,
+        1,
+        feeRate,
+      );
+      if (selectedValue >= amountSats + feeNoChange) {
+        break;
+      }
     }
   }
 
@@ -1957,6 +2062,7 @@ export async function sendBitcoin(
   recipientAddress: string,
   amountSats: number,
   feeRate: number,
+  forceUseAllInputs = false,
 ): Promise<string> {
   if (account.type === "inheritance") {
     throw new Error(
@@ -2010,22 +2116,26 @@ export async function sendBitcoin(
 
   allUtxos.sort((a, b) => b.value - a.value);
 
-  const selected: SpendableUtxo[] = [];
-  let selectedValue = 0;
+  const selected: SpendableUtxo[] = forceUseAllInputs ? [...allUtxos] : [];
+  let selectedValue = forceUseAllInputs
+    ? allUtxos.reduce((sum, utxo) => sum + utxo.value, 0)
+    : 0;
   const dustLimit = 330;
 
-  for (const utxo of allUtxos) {
-    selected.push(utxo);
-    selectedValue += utxo.value;
+  if (!forceUseAllInputs) {
+    for (const utxo of allUtxos) {
+      selected.push(utxo);
+      selectedValue += utxo.value;
 
-    const feeWithChange = estimateTaprootFee(selected.length, 2, feeRate);
-    if (selectedValue >= amountSats + feeWithChange) {
-      break;
-    }
+      const feeWithChange = estimateTaprootFee(selected.length, 2, feeRate);
+      if (selectedValue >= amountSats + feeWithChange) {
+        break;
+      }
 
-    const feeNoChange = estimateTaprootFee(selected.length, 1, feeRate);
-    if (selectedValue >= amountSats + feeNoChange) {
-      break;
+      const feeNoChange = estimateTaprootFee(selected.length, 1, feeRate);
+      if (selectedValue >= amountSats + feeNoChange) {
+        break;
+      }
     }
   }
 
