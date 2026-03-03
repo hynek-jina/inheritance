@@ -97,6 +97,36 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.menu-item-language {
+  cursor: default;
+}
+
+.menu-language-label {
+  flex: 1;
+}
+
+.menu-language-switch {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.menu-lang-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.menu-lang-btn.active {
+  background: rgba(66, 130, 211, 0.9);
+  color: #fff;
+}
+
 .menu-icon {
   font-size: 1.25rem;
 }

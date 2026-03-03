@@ -34,7 +34,7 @@
   width: 40px;
   height: 40px;
   border: 3px solid rgba(143, 216, 255, 0.26);
-  border-top-color: #8fd8ff;
+  border-top-color: var(--color-primary-500);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -46,11 +46,15 @@
 }
 
 .balance-card {
-  background: linear-gradient(135deg, #8fd8ff 0%, #6bc6f5 100%);
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-500) 0%,
+    var(--color-primary-600) 100%
+  );
   border-radius: 24px;
   padding: 24px;
   margin-bottom: 20px;
-  box-shadow: 0 16px 38px rgba(107, 198, 245, 0.32);
+  box-shadow: 0 16px 38px rgba(var(--color-primary-rgb), 0.32);
 }
 
 .balance-header {
@@ -365,7 +369,11 @@
   position: fixed;
   bottom: 24px;
   right: 24px;
-  background: linear-gradient(135deg, #8fd8ff 0%, #6bc6f5 100%);
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-500) 0%,
+    var(--color-primary-600) 100%
+  );
   color: white;
   border: none;
   padding: 16px 24px;

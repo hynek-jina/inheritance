@@ -49,7 +49,11 @@ h1 {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #8fd8ff 0%, #6bc6f5 100%);
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-500) 0%,
+    var(--color-primary-600) 100%
+  );
   color: white;
   border: none;
   padding: 16px 24px;
@@ -62,7 +66,7 @@ h1 {
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(107, 198, 245, 0.3);
+  box-shadow: 0 8px 20px rgba(var(--color-primary-rgb), 0.3);
 }
 
 .btn-primary:disabled {
@@ -100,7 +104,7 @@ h1 {
 
 .mnemonic-input:focus {
   outline: none;
-  border-color: #8fd8ff;
+  border-color: var(--color-primary-500);
 }
 
 .mnemonic-input::placeholder {

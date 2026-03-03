@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { AppLanguage } from "../constants";
 import {
   activateInheritanceFunds,
   exportInheritanceAccountShare,
@@ -171,6 +172,7 @@ function getCurrentInheritanceSpendStage(
 interface AccountDetailPageProps {
   account: Account;
   mnemonic: string;
+  language: AppLanguage;
   canDelete: boolean;
   onBack: () => void;
   onRefresh: () => Promise<void>;
@@ -183,6 +185,7 @@ interface AccountDetailPageProps {
 export function AccountDetailPage({
   account,
   mnemonic,
+  language,
   canDelete,
   onBack,
   onRefresh,
@@ -191,6 +194,19 @@ export function AccountDetailPage({
   onReceive,
   onSend,
 }: AccountDetailPageProps) {
+  const locale = language === "cs" ? "cs-CZ" : "en-US";
+  const txLabels =
+    language === "cs"
+      ? {
+          incoming: "Příchozí",
+          outgoing: "Odchozí",
+          activation: "Aktivační",
+        }
+      : {
+          incoming: "Incoming",
+          outgoing: "Outgoing",
+          activation: "Activation",
+        };
   const [standardDetails, setStandardDetails] =
     useState<StandardAccountDetails | null>(null);
   const [inheritanceDetails, setInheritanceDetails] =
@@ -770,28 +786,6 @@ export function AccountDetailPage({
                     {inheritanceDetails.heirXpub}
                   </span>
                 </div>
-
-                <div className="timelock-box">
-                  <div>
-                    0–{inheritanceDetails.spendingConditions.noSpendBlocks - 1}{" "}
-                    bloků: nikdo
-                  </div>
-                  <div>
-                    od{" "}
-                    {inheritanceDetails.spendingConditions.multisigAfterBlocks}{" "}
-                    bloků: uživatel + dědic
-                  </div>
-                  <div>
-                    od{" "}
-                    {inheritanceDetails.spendingConditions.userOnlyAfterBlocks}{" "}
-                    bloků: uživatel
-                  </div>
-                  <div>
-                    od{" "}
-                    {inheritanceDetails.spendingConditions.heirOnlyAfterBlocks}{" "}
-                    bloků: dědic
-                  </div>
-                </div>
               </>
             )}
         </div>
@@ -815,12 +809,16 @@ export function AccountDetailPage({
               <div key={tx.txid} className="tx-item">
                 <div className="tx-main-row">
                   <span
-                    className={`tx-type ${tx.type === "incoming" ? "in" : "out"}`}
+                    className={`tx-type ${tx.type === "incoming" ? "in" : tx.type === "activation" ? "activation" : "out"}`}
                   >
-                    {tx.type === "incoming" ? "Příchozí" : "Odchozí"}
+                    {tx.type === "incoming"
+                      ? txLabels.incoming
+                      : tx.type === "activation"
+                        ? txLabels.activation
+                        : txLabels.outgoing}
                   </span>
                   <span className="tx-amount">
-                    {tx.amount.toLocaleString("cs-CZ")} sats
+                    {tx.amount.toLocaleString(locale)} sats
                   </span>
                 </div>
                 <div className="tx-sub-row">
@@ -834,7 +832,7 @@ export function AccountDetailPage({
                     {tx.txid}
                   </a>
                   <span>
-                    {new Date(tx.timestamp * 1000).toLocaleString("cs-CZ")}
+                    {new Date(tx.timestamp * 1000).toLocaleString(locale)}
                   </span>
                 </div>
               </div>

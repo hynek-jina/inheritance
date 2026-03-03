@@ -1,4 +1,5 @@
 export type AppNetwork = "signet";
+export type AppLanguage = "cs" | "en";
 
 const BASE_TEST_LIKE_NETWORK = {
   messagePrefix: "\u0018Bitcoin Signed Message:\n",
@@ -21,6 +22,7 @@ export const NETWORK_CONFIG = {
 } as const;
 
 export const DEFAULT_NETWORK: AppNetwork = "signet";
+export const DEFAULT_LANGUAGE: AppLanguage = "cs";
 
 // Default derivation path root for Taproot (BIP-86 signet/test-like)
 export const TAPROOT_PATH = "m/86'/1'";
@@ -39,5 +41,6 @@ export const STORAGE_KEYS = {
   ACCOUNTS: "btc_accounts",
   TRANSACTIONS: "btc_transactions",
   NETWORK: "btc_network",
+  LANGUAGE: "btc_language",
   CONTACTS: "btc_contacts",
 };

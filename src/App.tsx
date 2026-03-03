@@ -3,14 +3,22 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "./App.css";
 import { Accounts } from "./components/Accounts";
 import { Welcome } from "./components/Welcome";
-import type { AppNetwork } from "./constants";
-import { loadActiveNetwork, loadWallet } from "./utils/storage";
+import type { AppLanguage, AppNetwork } from "./constants";
+import {
+  loadActiveLanguage,
+  loadActiveNetwork,
+  loadWallet,
+  saveActiveLanguage,
+} from "./utils/storage";
 
 function App() {
   const [wallet, setWallet] = useState<{ mnemonic: string } | null>(() =>
     loadWallet(),
   );
   const [network] = useState<AppNetwork>(() => loadActiveNetwork());
+  const [language, setLanguage] = useState<AppLanguage>(() =>
+    loadActiveLanguage(),
+  );
 
   const handleWalletCreated = () => {
     const saved = loadWallet();
@@ -21,6 +29,11 @@ function App() {
 
   const handleLogout = () => {
     setWallet(null);
+  };
+
+  const handleLanguageChange = (nextLanguage: AppLanguage) => {
+    saveActiveLanguage(nextLanguage);
+    setLanguage(nextLanguage);
   };
 
   // Routing logic
@@ -50,6 +63,8 @@ function App() {
           <Accounts
             mnemonic={wallet?.mnemonic ?? ""}
             network={network}
+            language={language}
+            onLanguageChange={handleLanguageChange}
             onLogout={handleLogout}
           />
         }
@@ -60,6 +75,8 @@ function App() {
           <Accounts
             mnemonic={wallet?.mnemonic ?? ""}
             network={network}
+            language={language}
+            onLanguageChange={handleLanguageChange}
             onLogout={handleLogout}
             initialView="accountDetail"
           />
@@ -71,6 +88,8 @@ function App() {
           <Accounts
             mnemonic={wallet?.mnemonic ?? ""}
             network={network}
+            language={language}
+            onLanguageChange={handleLanguageChange}
             onLogout={handleLogout}
             initialView="contacts"
           />

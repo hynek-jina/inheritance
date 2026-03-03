@@ -347,7 +347,7 @@ export async function getTransactions(
     const ownAddresses = accountAddresses ?? new Set([address]);
 
     return txs
-      .map((tx) => {
+      .map((tx): Transaction | null => {
         const sentFromOwn = tx.vin.reduce((sum, input) => {
           const prevoutAddress = input.prevout?.scriptpubkey_address;
           if (!prevoutAddress || !ownAddresses.has(prevoutAddress)) {

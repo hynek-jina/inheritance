@@ -88,7 +88,11 @@
   margin-top: 6px;
   border: 0;
   border-radius: 12px;
-  background: linear-gradient(135deg, #8fd8ff 0%, #6bc6f5 100%);
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-500) 0%,
+    var(--color-primary-600) 100%
+  );
   color: #fff;
   padding: 10px 14px;
   font-weight: 600;

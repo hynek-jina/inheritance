@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AppNetwork } from "../constants";
+import type { AppLanguage, AppNetwork } from "../constants";
 import { NETWORK_CONFIG } from "../constants";
 import { clearWallet } from "../utils/storage";
 import "./MenuBar.css";
@@ -7,6 +7,8 @@ import "./MenuBar.css";
 interface MenuBarProps {
   mnemonic: string;
   network: AppNetwork;
+  language: AppLanguage;
+  onLanguageChange: (language: AppLanguage) => void;
   onPasteAccount: () => Promise<void>;
   onOpenContacts: () => void;
   onLogout: () => void;
@@ -15,6 +17,8 @@ interface MenuBarProps {
 export function MenuBar({
   mnemonic,
   network,
+  language,
+  onLanguageChange,
   onPasteAccount,
   onOpenContacts,
   onLogout,
@@ -80,6 +84,25 @@ export function MenuBar({
     void onPasteAccount();
   };
 
+  const labels =
+    language === "cs"
+      ? {
+          contacts: "Kontakty",
+          copySeed: "Zkopírovat seed",
+          copied: "Zkopírováno!",
+          pasteAccount: "Vložit účet",
+          language: "Jazyk",
+          logout: "Odhlásit se",
+        }
+      : {
+          contacts: "Contacts",
+          copySeed: "Copy seed phrase",
+          copied: "Copied!",
+          pasteAccount: "Paste account",
+          language: "Language",
+          logout: "Log out",
+        };
+
   return (
     <div className="menu-bar">
       <div className="menu-title">
@@ -97,22 +120,42 @@ export function MenuBar({
           <div className="menu-dropdown">
             <button onClick={handleOpenContacts} className="menu-item">
               <span className="menu-icon">👥</span>
-              Kontakty
+              {labels.contacts}
             </button>
             <button onClick={handleCopySeed} className="menu-item">
               <span className="menu-icon">📋</span>
-              {copied ? "Zkopírováno!" : "Zkopírovat seed"}
+              {copied ? labels.copied : labels.copySeed}
             </button>
             <button onClick={handlePasteAccount} className="menu-item">
               <span className="menu-icon">📥</span>
-              Vložit účet
+              {labels.pasteAccount}
             </button>
+            <div className="menu-item menu-item-language" role="group">
+              <span className="menu-icon">🌐</span>
+              <span className="menu-language-label">{labels.language}</span>
+              <div className="menu-language-switch">
+                <button
+                  type="button"
+                  className={`menu-lang-btn ${language === "cs" ? "active" : ""}`}
+                  onClick={() => onLanguageChange("cs")}
+                >
+                  CZ
+                </button>
+                <button
+                  type="button"
+                  className={`menu-lang-btn ${language === "en" ? "active" : ""}`}
+                  onClick={() => onLanguageChange("en")}
+                >
+                  EN
+                </button>
+              </div>
+            </div>
             <button
               onClick={handleLogout}
               className="menu-item menu-item-danger"
             >
               <span className="menu-icon">🚪</span>
-              Odhlásit se
+              {labels.logout}
             </button>
           </div>
         )}

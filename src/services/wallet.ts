@@ -377,6 +377,25 @@ async function getAccountTransactions(
   }
 
   return Array.from(txById.values())
+    .map((tx) => {
+      if (account.type !== "inheritance" || tx.type !== "outgoing") {
+        return tx;
+      }
+
+      const matchesSavedActivationTx =
+        Boolean(account.activationTxid) && tx.txid === account.activationTxid;
+      const looksLikeInternalActivationTransfer =
+        tx.fee > 0 && tx.amount === tx.fee;
+
+      if (matchesSavedActivationTx || looksLikeInternalActivationTransfer) {
+        return {
+          ...tx,
+          type: "activation" as const,
+        };
+      }
+
+      return tx;
+    })
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 10);
 }
@@ -2410,6 +2429,7 @@ export async function activateInheritanceFunds(
   const txid = await broadcastTransaction(psbt.extractTransaction().toHex());
 
   accountRef.inheritanceActivated = true;
+  accountRef.activationTxid = txid;
 
   saveAccounts(accounts);
 

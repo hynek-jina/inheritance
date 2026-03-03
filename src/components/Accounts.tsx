@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import type { AppNetwork } from "../constants";
+import type { AppLanguage, AppNetwork } from "../constants";
 import { NETWORK_CONFIG } from "../constants";
 import {
   deleteAccount,
@@ -23,6 +23,8 @@ import { SendModal } from "./SendModal";
 interface AccountsProps {
   mnemonic: string;
   network: AppNetwork;
+  language: AppLanguage;
+  onLanguageChange: (language: AppLanguage) => void;
   onLogout: () => void;
   initialView?: "accounts" | "contacts" | "accountDetail";
 }
@@ -30,6 +32,8 @@ interface AccountsProps {
 export function Accounts({
   mnemonic,
   network,
+  language,
+  onLanguageChange,
   onLogout,
   initialView = "accounts",
 }: AccountsProps) {
@@ -135,6 +139,31 @@ export function Accounts({
   }, [params.accountId, location.pathname, accounts]);
 
   const totalBalance = accounts.reduce((sum, acc) => sum + acc.balance, 0);
+  const locale = language === "cs" ? "cs-CZ" : "en-US";
+  const ui =
+    language === "cs"
+      ? {
+          loadingAccounts: "Načítání účtů...",
+          totalBalance: "Celková balance",
+          refresh: "Obnovit",
+          accounts: "Účty",
+          inheritanceAccount: "Dědický účet",
+          standardAccount: "Standardní účet",
+          addInheritance: "Přidat dědický účet",
+          pastePrompt: "Vložte sdílená data dědického účtu:",
+          pasteError: "Účet se nepodařilo vložit",
+        }
+      : {
+          loadingAccounts: "Loading accounts...",
+          totalBalance: "Total balance",
+          refresh: "Refresh",
+          accounts: "Accounts",
+          inheritanceAccount: "Inheritance account",
+          standardAccount: "Standard account",
+          addInheritance: "Add inheritance account",
+          pastePrompt: "Paste shared inheritance account data:",
+          pasteError: "Failed to paste account",
+        };
   const primaryStandardAccountId = accounts.find(
     (item) => item.type === "standard",
   )?.id;
@@ -144,7 +173,7 @@ export function Accounts({
   };
 
   const handlePasteAccount = async () => {
-    const pasted = window.prompt("Vložte sdílená data dědického účtu:");
+    const pasted = window.prompt(ui.pastePrompt);
     if (!pasted) {
       return;
     }
@@ -154,8 +183,7 @@ export function Accounts({
       await loadAccountsData(false);
       navigate(`/account/${imported.id}`);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Účet se nepodařilo vložit";
+      const message = error instanceof Error ? error.message : ui.pasteError;
       window.alert(message);
     }
   };
@@ -256,7 +284,7 @@ export function Accounts({
       <div className="accounts-container">
         <div className="loading-screen">
           <div className="spinner"></div>
-          <p>Načítání účtů...</p>
+          <p>{ui.loadingAccounts}</p>
         </div>
       </div>
     );
@@ -267,6 +295,8 @@ export function Accounts({
       <MenuBar
         mnemonic={mnemonic}
         network={network}
+        language={language}
+        onLanguageChange={onLanguageChange}
         onPasteAccount={handlePasteAccount}
         onOpenContacts={() => {
           navigate("/contacts");
@@ -293,24 +323,25 @@ export function Accounts({
             setModalAccount(account);
             setShowSend(true);
           }}
+          language={language}
         />
       ) : (
         <div className="accounts-content">
           {/* Total Balance Card */}
           <div className="balance-card">
             <div className="balance-header">
-              <span className="balance-label">Celková balance</span>
+              <span className="balance-label">{ui.totalBalance}</span>
               <button
                 onClick={handleRefresh}
                 className="refresh-btn"
-                title="Obnovit"
+                title={ui.refresh}
                 disabled={isRefreshing}
               >
                 ↻
               </button>
             </div>
             <div className="balance-amount">
-              {totalBalance.toLocaleString("cs-CZ")}{" "}
+              {totalBalance.toLocaleString(locale)}{" "}
               <span className="btc-label">sats</span>
             </div>
             <div className="balance-testnet">
@@ -325,7 +356,7 @@ export function Accounts({
 
           {/* Accounts List */}
           <div className="accounts-list">
-            <h2>Účty</h2>
+            <h2>{ui.accounts}</h2>
             {accounts.map((account) => {
               const inheritanceState = getInheritanceVisualState(account);
 
@@ -351,8 +382,8 @@ export function Accounts({
                     </div>
                     <div className="account-type">
                       {account.type === "inheritance"
-                        ? "Dědický účet"
-                        : "Standardní účet"}
+                        ? ui.inheritanceAccount
+                        : ui.standardAccount}
                     </div>
                     {account.type === "inheritance" && (
                       <div
@@ -363,7 +394,7 @@ export function Accounts({
                     )}
                   </div>
                   <div className="account-balance">
-                    {account.balance.toLocaleString("cs-CZ")} sats
+                    {account.balance.toLocaleString(locale)} sats
                   </div>
                 </div>
               );
@@ -376,7 +407,7 @@ export function Accounts({
             className="add-inheritance-btn"
           >
             <span className="plus-icon">+</span>
-            Přidat dědický účet
+            {ui.addInheritance}
           </button>
         </div>
       )}

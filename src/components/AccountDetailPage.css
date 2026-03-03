@@ -317,16 +317,6 @@
   word-break: break-all;
 }
 
-.timelock-box {
-  margin-top: 10px;
-  background: rgba(143, 216, 255, 0.14);
-  border-radius: 12px;
-  padding: 10px;
-  font-size: 0.8rem;
-  display: grid;
-  gap: 6px;
-}
-
 .tx-item {
   background: rgba(7, 12, 32, 0.42);
   border-radius: 10px;
@@ -368,6 +358,10 @@
 
 .tx-type.out {
   color: #c6ecff;
+}
+
+.tx-type.activation {
+  color: #9fe0ff;
 }
 
 .tx-amount {

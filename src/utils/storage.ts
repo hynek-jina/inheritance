@@ -1,5 +1,5 @@
-import type { AppNetwork } from "../constants";
-import { DEFAULT_NETWORK, STORAGE_KEYS } from "../constants";
+import type { AppLanguage, AppNetwork } from "../constants";
+import { DEFAULT_LANGUAGE, DEFAULT_NETWORK, STORAGE_KEYS } from "../constants";
 import type { Account, Contact, Transaction, Wallet } from "../types";
 
 export function saveWallet(wallet: Wallet): void {
@@ -46,6 +46,18 @@ export function loadActiveNetwork(): AppNetwork {
     return data;
   }
   return DEFAULT_NETWORK;
+}
+
+export function saveActiveLanguage(language: AppLanguage): void {
+  localStorage.setItem(STORAGE_KEYS.LANGUAGE, language);
+}
+
+export function loadActiveLanguage(): AppLanguage {
+  const data = localStorage.getItem(STORAGE_KEYS.LANGUAGE);
+  if (data === "cs" || data === "en") {
+    return data;
+  }
+  return DEFAULT_LANGUAGE;
 }
 
 export function saveContacts(contacts: Contact[]): void {

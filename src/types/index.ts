@@ -23,6 +23,7 @@ export interface Account {
   identityDerivationPath?: string;
   fundingBranch?: number;
   inheritanceActivated?: boolean;
+  activationTxid?: string;
   spendingConditions?: SpendingConditions;
   inheritanceStatus?: InheritanceStatus;
 }
@@ -55,7 +56,7 @@ export interface Transaction {
   amount: number; // satoshis
   fee: number; // satoshis
   timestamp: number;
-  type: "incoming" | "outgoing";
+  type: "incoming" | "outgoing" | "activation";
   address: string;
   confirmed: boolean;
   confirmations: number;

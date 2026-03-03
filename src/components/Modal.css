@@ -171,7 +171,7 @@
 
 .form-input:focus {
   outline: none;
-  border-color: #8fd8ff;
+  border-color: var(--color-primary-500);
   background: rgba(255, 255, 255, 0.09);
   box-shadow: 0 0 0 3px rgba(143, 216, 255, 0.22);
 }
@@ -287,7 +287,7 @@
 }
 
 .step.active {
-  background: #8fd8ff;
+  background: var(--color-primary-500);
   color: white;
 }
 
