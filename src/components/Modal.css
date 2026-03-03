@@ -25,7 +25,6 @@
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 22px 58px rgba(2, 6, 23, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .modal-large {
@@ -46,7 +45,7 @@
 
 .modal-close {
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: none;
   color: white;
   width: 36px;
   height: 36px;
@@ -58,13 +57,11 @@
   justify-content: center;
   transition:
     transform 0.2s,
-    background 0.2s,
-    border-color 0.2s;
+    background 0.2s;
 }
 
 .modal-close:hover {
   background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.2);
   transform: translateY(-1px);
 }
 
@@ -107,7 +104,6 @@
   flex-direction: column;
   gap: 12px;
   margin-bottom: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .address-text {
@@ -118,7 +114,7 @@
 
 .copy-btn {
   background: rgba(247, 147, 26, 0.2);
-  border: 1px solid rgba(247, 147, 26, 0.35);
+  border: none;
   color: #f7931a;
   padding: 10px 16px;
   border-radius: 8px;
@@ -134,7 +130,6 @@
 
 .copy-btn.copied {
   background: rgba(76, 175, 80, 0.2);
-  border-color: #4caf50;
   color: #4caf50;
 }
 
@@ -145,7 +140,6 @@
   padding: 12px;
   background: rgba(255, 255, 255, 0.07);
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Forms */
@@ -201,7 +195,7 @@
 
 .fee-btn {
   padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   color: rgba(255, 255, 255, 0.7);
@@ -209,8 +203,7 @@
   font-size: 0.875rem;
   transition:
     transform 0.2s,
-    background 0.2s,
-    border-color 0.2s;
+    background 0.2s;
 }
 
 .fee-btn:hover {
@@ -219,7 +212,6 @@
 }
 
 .fee-btn.active {
-  border-color: #f7931a;
   background: rgba(247, 147, 26, 0.2);
   color: #f7931a;
 }
@@ -306,7 +298,6 @@
   margin-bottom: 12px;
   cursor: pointer;
   transition: all 0.2s;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .heir-item:hover {
@@ -315,7 +306,6 @@
 }
 
 .heir-item.selected {
-  border-color: rgba(247, 147, 26, 0.6);
   background: rgba(247, 147, 26, 0.14);
 }
 
@@ -344,7 +334,6 @@
   border-radius: 14px;
   padding: 16px;
   margin-bottom: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .condition-label {
@@ -381,7 +370,6 @@
   border-radius: 14px;
   padding: 16px;
   margin-bottom: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .summary-box h4 {
@@ -395,7 +383,6 @@
   display: flex;
   justify-content: space-between;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 0.875rem;
 }
 

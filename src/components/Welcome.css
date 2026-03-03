@@ -4,7 +4,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: linear-gradient(135deg, #0f172a 0%, #111a31 100%);
 }
 
 .welcome-card {
@@ -15,7 +15,6 @@
   width: 100%;
   max-width: 400px;
   text-align: center;
-  border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
@@ -25,7 +24,7 @@
   margin: 0 auto 24px;
 }
 
-.logo svg {
+.logo img {
   width: 100%;
   height: 100%;
 }
@@ -50,7 +49,7 @@ h1 {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #F7931A 0%, #e07c00 100%);
+  background: linear-gradient(135deg, #8fd8ff 0%, #6bc6f5 100%);
   color: white;
   border: none;
   padding: 16px 24px;
@@ -63,7 +62,7 @@ h1 {
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(247, 147, 26, 0.3);
+  box-shadow: 0 8px 20px rgba(107, 198, 245, 0.3);
 }
 
 .btn-primary:disabled {
@@ -74,7 +73,7 @@ h1 {
 .btn-secondary {
   background: transparent;
   color: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: none;
   padding: 16px 24px;
   border-radius: 12px;
   font-size: 1rem;
@@ -85,7 +84,6 @@ h1 {
 
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .mnemonic-input {
@@ -102,7 +100,7 @@ h1 {
 
 .mnemonic-input:focus {
   outline: none;
-  border-color: #F7931A;
+  border-color: #8fd8ff;
 }
 
 .mnemonic-input::placeholder {
@@ -110,19 +108,19 @@ h1 {
 }
 
 .error-message {
-  color: #ff6b6b;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 0.875rem;
   margin-bottom: 16px;
   padding: 8px;
-  background: rgba(255, 107, 107, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 8px;
 }
 
 .testnet-badge {
   margin-top: 24px;
   padding: 8px 16px;
-  background: rgba(247, 147, 26, 0.2);
-  color: #F7931A;
+  background: rgba(143, 216, 255, 0.18);
+  color: #8fd8ff;
   border-radius: 20px;
   font-size: 0.75rem;
   font-weight: 600;

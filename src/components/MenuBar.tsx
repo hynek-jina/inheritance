@@ -46,7 +46,9 @@ export function MenuBar({
 
   return (
     <div className="menu-bar">
-      <div className="menu-title">Bitcoin {NETWORK_CONFIG[network].label}</div>
+      <div className="menu-title">
+        Be Cool · {NETWORK_CONFIG[network].label}
+      </div>
 
       <div className="menu-container">
         <button className="menu-button" onClick={() => setShowMenu(!showMenu)}>

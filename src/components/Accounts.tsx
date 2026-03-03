@@ -4,7 +4,6 @@ import type { AppNetwork } from "../constants";
 import { NETWORK_CONFIG } from "../constants";
 import {
   deleteAccount,
-  getNostrIdentity,
   getWalletFingerprint,
   importInheritanceAccountShare,
   isInheritanceAccountActivated,
@@ -47,7 +46,6 @@ export function Accounts({
   const [showSend, setShowSend] = useState(false);
   const [showInheritance, setShowInheritance] = useState(false);
   const [walletFingerprint, setWalletFingerprint] = useState("");
-  const [myNpub, setMyNpub] = useState("");
   const [isLoading, setIsLoading] = useState(accounts.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const hasInitialAccountsRef = useRef(accounts.length > 0);
@@ -82,14 +80,10 @@ export function Accounts({
               updatedAccounts.push(account);
             }
           }
-          const [fingerprint, nostrIdentity] = await Promise.all([
-            getWalletFingerprint(mnemonic),
-            getNostrIdentity(mnemonic),
-          ]);
+          const fingerprint = await getWalletFingerprint(mnemonic);
 
           setAccounts(updatedAccounts);
           setWalletFingerprint(fingerprint);
-          setMyNpub(nostrIdentity.npub);
           setDetailAccount((prev) => {
             if (!prev) return prev;
             return updatedAccounts.find((a) => a.id === prev.id) || prev;
@@ -204,27 +198,51 @@ export function Accounts({
       role === "heir"
         ? Boolean(account.inheritanceStatus?.canHeirSpend)
         : Boolean(account.inheritanceStatus?.canUserSpend);
+    const canCounterpartySpend =
+      role === "heir"
+        ? Boolean(account.inheritanceStatus?.canUserSpend)
+        : Boolean(account.inheritanceStatus?.canHeirSpend);
+    const isActivated = isInheritanceAccountActivated(account);
 
     if (canLocalSpend) {
+      if (canCounterpartySpend) {
+        return {
+          cardClass: "spendable",
+          icon: "●",
+          statusText: "Dostupné pro oba",
+        };
+      }
+
       return {
         cardClass: "spendable",
-        icon: "🍃",
-        statusText: "Můžete utrácet",
+        icon: "●",
+        statusText: "Dostupné pro vás",
       };
     }
 
-    if (isInheritanceAccountActivated(account)) {
+    if (canCounterpartySpend) {
       return {
         cardClass: "active",
-        icon: "☀️",
-        statusText: "Aktivovaný účet",
+        icon: "◐",
+        statusText:
+          role === "heir" ? "Dostupné pro majitele" : "Dostupné pro dědice",
+      };
+    }
+
+    if (isActivated) {
+      return {
+        cardClass: "active",
+        icon: "◐",
+        statusText: account.inheritanceStatus?.requiresMultisig
+          ? "Dostupné společně"
+          : "Aktivováno",
       };
     }
 
     return {
       cardClass: "frozen",
-      icon: "🧊",
-      statusText: "Čekání na timelock",
+      icon: "○",
+      statusText: "Čeká na aktivaci",
     };
   };
 
@@ -252,7 +270,7 @@ export function Accounts({
       />
 
       {view === "contacts" ? (
-        <Contacts npub={myNpub} onBack={() => navigate("/")} />
+        <Contacts onBack={() => navigate("/")} />
       ) : detailAccount ? (
         <AccountDetailPage
           account={detailAccount}

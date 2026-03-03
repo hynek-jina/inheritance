@@ -11,23 +11,23 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "Bitcoin Signet Wallet",
-        short_name: "BTC Signet",
-        description: "Bitcoin signet peněženka s dědickými účty",
-        theme_color: "#1a1a2e",
-        background_color: "#1a1a2e",
+        name: "Be Cool",
+        short_name: "Be Cool",
+        description: "Be Cool - bitcoin signet peněženka s dědickými účty",
+        theme_color: "#8fd8ff",
+        background_color: "#0f172a",
         display: "standalone",
         start_url: "/",
         icons: [
           {
-            src: "/icon-192x192.svg",
+            src: "/icon-192x192.png",
             sizes: "192x192",
-            type: "image/svg+xml",
+            type: "image/png",
           },
           {
-            src: "/icon-512x512.svg",
+            src: "/icon-512x512.png",
             sizes: "512x512",
-            type: "image/svg+xml",
+            type: "image/png",
           },
         ],
       },

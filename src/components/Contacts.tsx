@@ -4,7 +4,6 @@ import { loadContacts, saveContacts } from "../utils/storage";
 import "./Contacts.css";
 
 interface ContactsProps {
-  npub: string;
   onBack: () => void;
 }
 
@@ -17,19 +16,16 @@ function shortenTechnicalValue(value: string): string {
   return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
 }
 
-export function Contacts({ npub, onBack }: ContactsProps) {
+export function Contacts({ onBack }: ContactsProps) {
   const [contacts, setContacts] = useState<Contact[]>(() => loadContacts());
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [contactNpub, setContactNpub] = useState("");
   const [xpub, setXpub] = useState("");
   const [fingerprint, setFingerprint] = useState("");
-  const hasNpub = Boolean(npub.trim());
 
   const resetForm = () => {
     setEditingContactId(null);
     setName("");
-    setContactNpub("");
     setXpub("");
     setFingerprint("");
   };
@@ -39,7 +35,7 @@ export function Contacts({ npub, onBack }: ContactsProps) {
 
     const normalizedContact = {
       name: name.trim(),
-      npub: contactNpub.trim(),
+      npub: "",
       xpub: xpub.trim(),
       fingerprint: fingerprint.trim(),
     };
@@ -70,7 +66,6 @@ export function Contacts({ npub, onBack }: ContactsProps) {
   const handleEditContact = (contact: Contact) => {
     setEditingContactId(contact.id);
     setName(contact.name);
-    setContactNpub(contact.npub);
     setXpub(contact.xpub);
     setFingerprint(contact.fingerprint);
   };
@@ -106,17 +101,6 @@ export function Contacts({ npub, onBack }: ContactsProps) {
       <div className="contacts-content">
         <h2>Kontakty</h2>
 
-        <div className="contact-card">
-          <div className="contact-label">Můj kontakt (npub)</div>
-          {hasNpub ? (
-            <div className="contact-npub mono wrap">{npub}</div>
-          ) : (
-            <div className="contact-empty">
-              Nostr kontakt se nepodařilo načíst.
-            </div>
-          )}
-        </div>
-
         <form className="contact-form" onSubmit={handleSubmitContact}>
           <h3>{editingContactId ? "Upravit kontakt" : "Přidat kontakt"}</h3>
 
@@ -128,17 +112,6 @@ export function Contacts({ npub, onBack }: ContactsProps) {
             className="contact-input"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            required
-          />
-
-          <label className="contact-input-label" htmlFor="contact-npub">
-            npub
-          </label>
-          <input
-            id="contact-npub"
-            className="contact-input mono"
-            value={contactNpub}
-            onChange={(event) => setContactNpub(event.target.value)}
             required
           />
 
@@ -209,9 +182,6 @@ export function Contacts({ npub, onBack }: ContactsProps) {
                   </div>
                 </div>
                 <div className="contact-tech-row mono">
-                  <span className="contact-tech-item">
-                    npub: {shortenTechnicalValue(contact.npub)}
-                  </span>
                   <span className="contact-tech-item">
                     xpub: {shortenTechnicalValue(contact.xpub)}
                   </span>

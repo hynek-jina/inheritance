@@ -93,19 +93,9 @@ export function Welcome({ onWalletCreated }: WelcomeProps) {
     <div className="welcome-container">
       <div className="welcome-card">
         <div className="logo">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle cx="12" cy="12" r="10" stroke="#F7931A" strokeWidth="2" />
-            <path
-              d="M15.5 9.5c.5-1.5-1-2-2.5-2.5l.5-2-1.5-.5-.5 2c-.5 0-1 0-1.5.5l.5-2-1.5-.5-.5 2c-2 .5-3.5 1.5-3 3.5.5 1.5 2 2 3.5 2.5-1 .5-2 1-1.5 2.5.5 1.5 2 2 4 1.5l-.5 2 1.5.5.5-2c.5 0 1 0 1.5-.5l.5 2 1.5.5.5-2c2-.5 3.5-1.5 3-3.5-.5-1.5-2-2-3.5-2.5z"
-              fill="#F7931A"
-            />
-          </svg>
+          <img src="/icon-192x192.png" alt="Be Cool logo" />
         </div>
-        <h1>Bitcoin Signet Peněženka</h1>
+        <h1>Be Cool</h1>
         <p className="subtitle">Bezpečná peněženka s dědickými účty</p>
 
         <div className="button-group">
