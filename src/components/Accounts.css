@@ -313,7 +313,16 @@
 }
 
 .inheritance-icon {
-  font-size: 1.2rem;
+  --inheritance-progress: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(198, 236, 255, 0.7);
+  background: conic-gradient(
+    #c6ecff calc((var(--inheritance-progress) / 4) * 360deg),
+    transparent 0
+  );
+  flex-shrink: 0;
 }
 
 .account-type {

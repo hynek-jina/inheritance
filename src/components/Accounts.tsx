@@ -182,13 +182,13 @@ export function Accounts({
     account: Account,
   ): {
     cardClass: "frozen" | "active" | "spendable";
-    icon: string;
+    progress: 0 | 1 | 2 | 3 | 4;
     statusText: string;
   } => {
     if (account.type !== "inheritance") {
       return {
         cardClass: "frozen",
-        icon: "",
+        progress: 0,
         statusText: "",
       };
     }
@@ -203,27 +203,32 @@ export function Accounts({
         ? Boolean(account.inheritanceStatus?.canUserSpend)
         : Boolean(account.inheritanceStatus?.canHeirSpend);
     const isActivated = isInheritanceAccountActivated(account);
+    const canOwnerSpend = Boolean(account.inheritanceStatus?.canUserSpend);
+    const canHeirSpend = Boolean(account.inheritanceStatus?.canHeirSpend);
+    const requiresMultisig = Boolean(
+      account.inheritanceStatus?.requiresMultisig,
+    );
 
     if (canLocalSpend) {
       if (canCounterpartySpend) {
         return {
           cardClass: "spendable",
-          icon: "●",
+          progress: 4,
           statusText: "Dostupné pro oba",
         };
       }
 
       return {
         cardClass: "spendable",
-        icon: "●",
+        progress: canOwnerSpend || canHeirSpend ? 3 : 2,
         statusText: "Dostupné pro vás",
       };
     }
 
     if (canCounterpartySpend) {
       return {
-        cardClass: "active",
-        icon: "◐",
+        cardClass: role === "user" ? "active" : "spendable",
+        progress: role === "user" ? 2 : 3,
         statusText:
           role === "heir" ? "Dostupné pro majitele" : "Dostupné pro dědice",
       };
@@ -232,7 +237,7 @@ export function Accounts({
     if (isActivated) {
       return {
         cardClass: "active",
-        icon: "◐",
+        progress: requiresMultisig ? 2 : 1,
         statusText: account.inheritanceStatus?.requiresMultisig
           ? "Dostupné společně"
           : "Aktivováno",
@@ -241,7 +246,7 @@ export function Accounts({
 
     return {
       cardClass: "frozen",
-      icon: "○",
+      progress: 0,
       statusText: "Čeká na aktivaci",
     };
   };
@@ -333,9 +338,14 @@ export function Accounts({
                   <div className="account-info">
                     <div className="account-name">
                       {account.type === "inheritance" && (
-                        <span className="inheritance-icon">
-                          {inheritanceState.icon}
-                        </span>
+                        <span
+                          className="inheritance-icon"
+                          style={{
+                            ["--inheritance-progress" as string]:
+                              inheritanceState.progress,
+                          }}
+                          aria-hidden="true"
+                        />
                       )}
                       {account.name}
                     </div>

@@ -389,7 +389,7 @@ export function AccountDetailPage({
 
   const handleDeleteAccount = async () => {
     const confirmed = window.confirm(
-      `Opravdu chcete smazat účet \"${account.name}\"?`,
+      `Opravdu chcete smazat účet "${account.name}"?`,
     );
     if (!confirmed) {
       return;
@@ -587,7 +587,7 @@ export function AccountDetailPage({
             </div>
 
             <div
-              className={`inheritance-visualization-item ${currentInheritanceStage === "localOnly" ? "active" : ""}`}
+              className={`inheritance-visualization-item ${currentInheritanceStage === "localOnly" || currentInheritanceStage === "bothSingle" ? "active" : ""}`}
             >
               <span className="state-icon">🧑</span>
               <div className="state-main">
@@ -611,7 +611,7 @@ export function AccountDetailPage({
             </div>
 
             <div
-              className={`inheritance-visualization-item ${currentInheritanceStage === "counterpartyOnly" ? "active" : ""}`}
+              className={`inheritance-visualization-item ${currentInheritanceStage === "counterpartyOnly" || currentInheritanceStage === "bothSingle" ? "active" : ""}`}
             >
               <span className="state-icon">👤</span>
               <div className="state-main">
@@ -628,31 +628,6 @@ export function AccountDetailPage({
                             .userOnlyAfterBlocks) - blocksSinceFunding,
                     ),
                     "counterpartyOnly",
-                    currentInheritanceStage,
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div
-              className={`inheritance-visualization-item ${currentInheritanceStage === "bothSingle" ? "active" : ""}`}
-            >
-              <span className="state-icon">👥</span>
-              <div className="state-main">
-                <div className="state-title">Dostupné pro oba</div>
-                <div className="state-subtitle">
-                  Oba mohou utrácet samostatně
-                  {getStageEtaSuffix(
-                    Math.max(
-                      0,
-                      Math.max(
-                        inheritanceDetails.spendingConditions
-                          .userOnlyAfterBlocks,
-                        inheritanceDetails.spendingConditions
-                          .heirOnlyAfterBlocks,
-                      ) - blocksSinceFunding,
-                    ),
-                    "bothSingle",
                     currentInheritanceStage,
                   )}
                 </div>

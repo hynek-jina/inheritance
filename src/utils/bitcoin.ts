@@ -4,6 +4,7 @@ import { Buffer } from "buffer";
 import { getPublicKey, nip19 } from "nostr-tools";
 import * as ecc from "tiny-secp256k1";
 import { NETWORK_CONFIG, TAPROOT_PATH } from "../constants";
+import type { SpendingConditions } from "../types";
 import {
   recoverMasterSecret,
   generateMnemonic as slip39GenerateMnemonic,
@@ -177,6 +178,9 @@ export function deriveInheritanceDescriptorFromXpubs(
   address: string;
   output: Buffer;
   witnessScript: Buffer;
+  userPublicKey: Buffer;
+  heirPublicKey: Buffer;
+  multisigPubkeys: [Buffer, Buffer];
 } {
   const userAccountKey = parseExtendedKey(userAccountXpub);
   const heirAccountKey = parseExtendedKey(heirAccountXpub);
@@ -194,12 +198,16 @@ export function deriveInheritanceDescriptorFromXpubs(
     throw new Error("Failed to derive multisig child keys");
   }
 
+  const userPublicKey = Buffer.from(userChild.publicKey);
+  const heirPublicKey = Buffer.from(heirChild.publicKey);
+  const multisigPubkeys = [
+    Buffer.from(userPublicKey),
+    Buffer.from(heirPublicKey),
+  ].sort(Buffer.compare) as [Buffer, Buffer];
+
   const multisig = bitcoin.payments.p2ms({
     m: 2,
-    pubkeys: [
-      Buffer.from(userChild.publicKey),
-      Buffer.from(heirChild.publicKey),
-    ].sort(Buffer.compare),
+    pubkeys: multisigPubkeys,
     network: getActiveBitcoinNetwork(),
   });
 
@@ -220,6 +228,110 @@ export function deriveInheritanceDescriptorFromXpubs(
     address: payment.address,
     output: Buffer.from(payment.output),
     witnessScript: Buffer.from(multisig.output),
+    userPublicKey,
+    heirPublicKey,
+    multisigPubkeys,
+  };
+}
+
+export function deriveInheritanceTimelockedAddressFromXpubs(
+  userAccountXpub: string,
+  heirAccountXpub: string,
+  addressIndex: number,
+  conditions: SpendingConditions,
+  change: 0 | 1 = 0,
+): string {
+  const descriptor = deriveInheritanceTimelockedDescriptorFromXpubs(
+    userAccountXpub,
+    heirAccountXpub,
+    addressIndex,
+    conditions,
+    change,
+  );
+
+  return descriptor.address;
+}
+
+export function deriveInheritanceTimelockedDescriptorFromXpubs(
+  userAccountXpub: string,
+  heirAccountXpub: string,
+  addressIndex: number,
+  conditions: SpendingConditions,
+  change: 0 | 1 = 0,
+): {
+  address: string;
+  output: Buffer;
+  witnessScript: Buffer;
+  userPublicKey: Buffer;
+  heirPublicKey: Buffer;
+  multisigPubkeys: [Buffer, Buffer];
+} {
+  const userAccountKey = parseExtendedKey(userAccountXpub);
+  const heirAccountKey = parseExtendedKey(heirAccountXpub);
+
+  const userChild = userAccountKey
+    .deriveChild(0)
+    .deriveChild(change)
+    .deriveChild(addressIndex);
+  const heirChild = heirAccountKey
+    .deriveChild(0)
+    .deriveChild(change)
+    .deriveChild(addressIndex);
+
+  if (!userChild.publicKey || !heirChild.publicKey) {
+    throw new Error("Failed to derive timelocked inheritance child keys");
+  }
+
+  const userPublicKey = Buffer.from(userChild.publicKey);
+  const heirPublicKey = Buffer.from(heirChild.publicKey);
+  const multisigPubkeys = [
+    Buffer.from(userPublicKey),
+    Buffer.from(heirPublicKey),
+  ].sort(Buffer.compare) as [Buffer, Buffer];
+
+  const witnessScript = bitcoin.script.compile([
+    bitcoin.opcodes.OP_IF,
+    bitcoin.script.number.encode(Math.max(0, conditions.multisigAfterBlocks)),
+    bitcoin.opcodes.OP_CHECKSEQUENCEVERIFY,
+    bitcoin.opcodes.OP_DROP,
+    bitcoin.opcodes.OP_2,
+    multisigPubkeys[0],
+    multisigPubkeys[1],
+    bitcoin.opcodes.OP_2,
+    bitcoin.opcodes.OP_CHECKMULTISIG,
+    bitcoin.opcodes.OP_ELSE,
+    bitcoin.opcodes.OP_IF,
+    bitcoin.script.number.encode(Math.max(0, conditions.userOnlyAfterBlocks)),
+    bitcoin.opcodes.OP_CHECKSEQUENCEVERIFY,
+    bitcoin.opcodes.OP_DROP,
+    userPublicKey,
+    bitcoin.opcodes.OP_CHECKSIG,
+    bitcoin.opcodes.OP_ELSE,
+    bitcoin.script.number.encode(Math.max(0, conditions.heirOnlyAfterBlocks)),
+    bitcoin.opcodes.OP_CHECKSEQUENCEVERIFY,
+    bitcoin.opcodes.OP_DROP,
+    heirPublicKey,
+    bitcoin.opcodes.OP_CHECKSIG,
+    bitcoin.opcodes.OP_ENDIF,
+    bitcoin.opcodes.OP_ENDIF,
+  ]);
+
+  const payment = bitcoin.payments.p2wsh({
+    redeem: { output: witnessScript },
+    network: getActiveBitcoinNetwork(),
+  });
+
+  if (!payment.address || !payment.output) {
+    throw new Error("Failed to derive timelocked inheritance address");
+  }
+
+  return {
+    address: payment.address,
+    output: Buffer.from(payment.output),
+    witnessScript: Buffer.from(witnessScript),
+    userPublicKey,
+    heirPublicKey,
+    multisigPubkeys,
   };
 }
 

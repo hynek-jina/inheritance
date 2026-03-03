@@ -26,6 +26,8 @@ import {
 import {
   deriveInheritanceAddressFromXpubs,
   deriveInheritanceDescriptorFromXpubs,
+  deriveInheritanceTimelockedAddressFromXpubs,
+  deriveInheritanceTimelockedDescriptorFromXpubs,
   deriveNostrIdentityFromMnemonic,
   deriveTaprootAddress,
   generateMnemonic,
@@ -423,8 +425,9 @@ function buildStandardAuditAddressSet(
 }
 
 function buildInheritanceAuditAddressSet(
-  localXpub: string,
-  counterpartyXpub: string,
+  userXpub: string,
+  heirXpub: string,
+  spendingConditions: SpendingConditions,
 ): {
   receive: Array<{ index: number; address: string }>;
   change: Array<{ index: number; address: string }>;
@@ -432,19 +435,21 @@ function buildInheritanceAuditAddressSet(
   return {
     receive: Array.from({ length: ADDRESS_AUDIT_LIMIT }, (_, index) => ({
       index,
-      address: deriveInheritanceAddressFromXpubs(
-        localXpub,
-        counterpartyXpub,
+      address: deriveInheritanceTimelockedAddressFromXpubs(
+        userXpub,
+        heirXpub,
         index,
+        spendingConditions,
         0,
       ),
     })),
     change: Array.from({ length: ADDRESS_AUDIT_LIMIT }, (_, index) => ({
       index,
-      address: deriveInheritanceAddressFromXpubs(
-        localXpub,
-        counterpartyXpub,
+      address: deriveInheritanceTimelockedAddressFromXpubs(
+        userXpub,
+        heirXpub,
         index,
+        spendingConditions,
         1,
       ),
     })),
@@ -496,11 +501,14 @@ export async function getInheritanceAccountDetails(
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
   const identity = deriveLocalIdentity(masterKey);
   const participants = resolveInheritanceParticipants(account, identity);
+  const spendingConditions =
+    account.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS;
 
   const auditAddressSet = participants.counterpartyXpub
     ? buildInheritanceAuditAddressSet(
-        participants.localXpub,
-        participants.counterpartyXpub,
+        participants.userXpub,
+        participants.heirXpub,
+        spendingConditions,
       )
     : { receive: [], change: [] };
 
@@ -517,8 +525,7 @@ export async function getInheritanceAccountDetails(
     heirFingerprint: participants.heirFingerprint,
     heirXpub: participants.heirXpub,
     derivationPath: account.identityDerivationPath || identity.derivationPath,
-    spendingConditions:
-      account.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS,
+    spendingConditions,
     transactions,
     receiveAddresses,
     changeAddresses,
@@ -632,10 +639,11 @@ export async function createInheritanceAccount(
       0,
       fundingBranch,
     );
-    activeAddress = deriveInheritanceAddressFromXpubs(
+    activeAddress = deriveInheritanceTimelockedAddressFromXpubs(
       participantSet.userXpub,
       participantSet.heirXpub,
       0,
+      conditions,
       0,
     );
   } catch (error) {
@@ -983,10 +991,11 @@ export async function updateAccountBalance(
         });
         addCandidate({
           index,
-          address: deriveInheritanceAddressFromXpubs(
+          address: deriveInheritanceTimelockedAddressFromXpubs(
             participants.userXpub,
             participants.heirXpub,
             index,
+            account.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS,
             0,
           ),
           change: false,
@@ -995,10 +1004,11 @@ export async function updateAccountBalance(
         });
         addCandidate({
           index,
-          address: deriveInheritanceAddressFromXpubs(
+          address: deriveInheritanceTimelockedAddressFromXpubs(
             participants.userXpub,
             participants.heirXpub,
             index,
+            account.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS,
             1,
           ),
           change: true,
@@ -1115,13 +1125,17 @@ async function calculateInheritanceStatus(
     }
   }
 
+  const canUserSpend = blocksSinceFunding >= conditions.userOnlyAfterBlocks;
+  const canHeirSpend = blocksSinceFunding >= conditions.heirOnlyAfterBlocks;
+
   return {
     blocksSinceFunding,
-    canUserSpend: blocksSinceFunding >= conditions.userOnlyAfterBlocks,
-    canHeirSpend: blocksSinceFunding >= conditions.heirOnlyAfterBlocks,
+    canUserSpend,
+    canHeirSpend,
     requiresMultisig:
       blocksSinceFunding >= conditions.multisigAfterBlocks &&
-      blocksSinceFunding < conditions.userOnlyAfterBlocks,
+      !canUserSpend &&
+      !canHeirSpend,
   };
 }
 
@@ -1269,6 +1283,48 @@ function estimateInheritanceMultisigFee(
   return Math.ceil(estimatedVbytes * feeRate);
 }
 
+type InheritanceSpendPath = "multisig" | "user-only" | "heir-only";
+
+function resolveInheritanceSpendPath(account: Account): InheritanceSpendPath {
+  if (account.type !== "inheritance") {
+    throw new Error("Tato funkce je pouze pro dědický účet");
+  }
+
+  const status = account.inheritanceStatus;
+  if (!status) {
+    throw new Error("Chybí aktuální stav dědického účtu");
+  }
+
+  if (status.requiresMultisig) {
+    return "multisig";
+  }
+
+  const localRole = account.localRole || "user";
+  if (localRole === "user" && status.canUserSpend) {
+    return "user-only";
+  }
+
+  if (localRole === "heir" && status.canHeirSpend) {
+    return "heir-only";
+  }
+
+  throw new Error("V této fázi zatím nelze z účtu utrácet");
+}
+
+function getSpendPathRequiredSequence(
+  spendPath: InheritanceSpendPath,
+  conditions: SpendingConditions,
+): number {
+  const csvValue =
+    spendPath === "multisig"
+      ? conditions.multisigAfterBlocks
+      : spendPath === "user-only"
+        ? conditions.userOnlyAfterBlocks
+        : conditions.heirOnlyAfterBlocks;
+
+  return Math.max(0, csvValue) >>> 0;
+}
+
 export async function calculateMaxSendAmountNoChange(
   mnemonic: string,
   account: Account,
@@ -1291,9 +1347,7 @@ export async function calculateMaxSendAmountNoChange(
       throw new Error("Účet není aktivovaný. Nejprve aktivujte prostředky.");
     }
 
-    if (!accountRef.inheritanceStatus?.requiresMultisig) {
-      throw new Error("Společné utrácení zatím není dostupné");
-    }
+    resolveInheritanceSpendPath(accountRef);
 
     const inheritanceUtxos = await collectInheritanceUtxos(
       accountRef,
@@ -1482,6 +1536,252 @@ function getInheritanceLocalBasePath(
   return account.identityDerivationPath || identityDerivationPath;
 }
 
+function getInheritanceSigningPathCandidates(
+  localBasePath: string,
+  change: 0 | 1,
+  addressIndex: number,
+): string[] {
+  return [
+    `${localBasePath}/0/${change}/${addressIndex}`,
+    `${localBasePath}/${change}/${addressIndex}`,
+  ];
+}
+
+function signInheritanceInputWithFallbackPaths(
+  psbt: bitcoin.Psbt,
+  inputIndex: number,
+  masterKey: Awaited<ReturnType<typeof getMasterKeyFromMnemonic>>,
+  localBasePath: string,
+  change: 0 | 1,
+  addressIndex: number,
+): void {
+  const derivationPaths = getInheritanceSigningPathCandidates(
+    localBasePath,
+    change,
+    addressIndex,
+  );
+
+  let lastError: unknown = null;
+
+  for (const derivationPath of derivationPaths) {
+    const child = masterKey.derive(derivationPath);
+    if (!child.privateKey) {
+      continue;
+    }
+
+    const signer = createEcdsaSigner(Buffer.from(child.privateKey));
+    const signerPubkeyHex = signer.publicKey.toString("hex");
+    const alreadySignedBySameKey =
+      psbt.data.inputs[inputIndex].partialSig?.some(
+        (partialSig) =>
+          Buffer.from(partialSig.pubkey).toString("hex") === signerPubkeyHex,
+      ) || false;
+
+    if (alreadySignedBySameKey) {
+      return;
+    }
+
+    try {
+      psbt.signInput(inputIndex, signer);
+      return;
+    } catch (error) {
+      lastError = error;
+      continue;
+    }
+  }
+
+  const message =
+    lastError instanceof Error
+      ? lastError.message
+      : "Nepodařilo se podepsat vstup dědického účtu";
+  throw new Error(message);
+}
+
+function encodeCompactSize(value: number): Buffer {
+  const safeValue = Math.max(0, Math.floor(value));
+  if (safeValue < 0xfd) {
+    return Buffer.from([safeValue]);
+  }
+  if (safeValue <= 0xffff) {
+    const out = Buffer.alloc(3);
+    out[0] = 0xfd;
+    out.writeUInt16LE(safeValue, 1);
+    return out;
+  }
+  if (safeValue <= 0xffffffff) {
+    const out = Buffer.alloc(5);
+    out[0] = 0xfe;
+    out.writeUInt32LE(safeValue, 1);
+    return out;
+  }
+
+  throw new Error("Witness element je příliš velký");
+}
+
+function witnessStackToScriptWitness(witnessStack: Buffer[]): Buffer {
+  const chunks: Buffer[] = [encodeCompactSize(witnessStack.length)];
+  for (const element of witnessStack) {
+    chunks.push(encodeCompactSize(element.length));
+    chunks.push(element);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function getInputPartialSignatures(
+  psbt: bitcoin.Psbt,
+  inputIndex: number,
+): Map<string, Buffer> {
+  const inputData = psbt.data.inputs[inputIndex];
+  const partialSigs = inputData.partialSig || [];
+  const byPubkey = new Map<string, Buffer>();
+
+  for (const partialSig of partialSigs) {
+    byPubkey.set(
+      Buffer.from(partialSig.pubkey).toString("hex"),
+      Buffer.from(partialSig.signature),
+    );
+  }
+
+  return byPubkey;
+}
+
+function finalizeTimelockedInheritanceInput(
+  psbt: bitcoin.Psbt,
+  inputIndex: number,
+  descriptor: ReturnType<typeof deriveInheritanceTimelockedDescriptorFromXpubs>,
+  spendPath: InheritanceSpendPath,
+): void {
+  const signatures = getInputPartialSignatures(psbt, inputIndex);
+
+  const falseSelector = Buffer.alloc(0);
+  const trueSelector = Buffer.from([1]);
+  const userSig = signatures.get(descriptor.userPublicKey.toString("hex"));
+  const heirSig = signatures.get(descriptor.heirPublicKey.toString("hex"));
+
+  let witnessStack: Buffer[];
+  if (spendPath === "multisig") {
+    const firstSig = signatures.get(
+      descriptor.multisigPubkeys[0].toString("hex"),
+    );
+    const secondSig = signatures.get(
+      descriptor.multisigPubkeys[1].toString("hex"),
+    );
+
+    if (!firstSig || !secondSig) {
+      throw new Error("Pro multisig větev chybí oba podpisy");
+    }
+
+    witnessStack = [
+      Buffer.alloc(0),
+      firstSig,
+      secondSig,
+      trueSelector,
+      descriptor.witnessScript,
+    ];
+  } else if (spendPath === "user-only") {
+    if (!userSig) {
+      throw new Error("Chybí podpis uživatele pro samostatné utrácení");
+    }
+
+    witnessStack = [
+      userSig,
+      trueSelector,
+      falseSelector,
+      descriptor.witnessScript,
+    ];
+  } else {
+    if (!heirSig) {
+      throw new Error("Chybí podpis dědice pro samostatné utrácení");
+    }
+
+    witnessStack = [
+      heirSig,
+      falseSelector,
+      falseSelector,
+      descriptor.witnessScript,
+    ];
+  }
+
+  psbt.finalizeInput(inputIndex, (() => ({
+    finalScriptWitness: witnessStackToScriptWitness(witnessStack),
+  })) as Parameters<bitcoin.Psbt["finalizeInput"]>[1]);
+}
+
+type InheritanceInputDescriptor =
+  | ({ kind: "timelocked" } & ReturnType<
+      typeof deriveInheritanceTimelockedDescriptorFromXpubs
+    >)
+  | ({ kind: "legacy" } & ReturnType<
+      typeof deriveInheritanceDescriptorFromXpubs
+    >);
+
+function resolveInheritanceInputDescriptor(
+  participants: ReturnType<typeof resolveInheritanceParticipants>,
+  spendingConditions: SpendingConditions,
+  source: { index: number; change: 0 | 1; address: string },
+): InheritanceInputDescriptor {
+  const timelocked = deriveInheritanceTimelockedDescriptorFromXpubs(
+    participants.userXpub,
+    participants.heirXpub,
+    source.index,
+    spendingConditions,
+    source.change,
+  );
+
+  if (timelocked.address === source.address) {
+    return {
+      kind: "timelocked",
+      ...timelocked,
+    };
+  }
+
+  const legacy = deriveInheritanceDescriptorFromXpubs(
+    participants.userXpub,
+    participants.heirXpub,
+    source.index,
+    source.change,
+  );
+
+  if (legacy.address === source.address) {
+    return {
+      kind: "legacy",
+      ...legacy,
+    };
+  }
+
+  throw new Error("Nepodařilo se rozpoznat skript aktivní dědické adresy");
+}
+
+function finalizeLegacyMultisigInput(
+  psbt: bitcoin.Psbt,
+  inputIndex: number,
+  descriptor: ReturnType<typeof deriveInheritanceDescriptorFromXpubs>,
+): void {
+  const signatures = getInputPartialSignatures(psbt, inputIndex);
+  const firstSig = signatures.get(
+    descriptor.multisigPubkeys[0].toString("hex"),
+  );
+  const secondSig = signatures.get(
+    descriptor.multisigPubkeys[1].toString("hex"),
+  );
+
+  if (!firstSig || !secondSig) {
+    throw new Error("Pro multisig větev chybí oba podpisy");
+  }
+
+  const witnessStack = [
+    Buffer.alloc(0),
+    firstSig,
+    secondSig,
+    descriptor.witnessScript,
+  ];
+
+  psbt.finalizeInput(inputIndex, (() => ({
+    finalScriptWitness: witnessStackToScriptWitness(witnessStack),
+  })) as Parameters<bitcoin.Psbt["finalizeInput"]>[1]);
+}
+
 function collectInheritanceUtxos(
   account: Account,
   allowedRole: "funding" | "active",
@@ -1529,10 +1829,11 @@ function ensureInheritanceActiveAddress(
   const nextActiveIndex =
     usedActiveIndexes.length > 0 ? Math.max(...usedActiveIndexes) + 1 : 0;
 
-  const destinationAddress = deriveInheritanceAddressFromXpubs(
+  const destinationAddress = deriveInheritanceTimelockedAddressFromXpubs(
     participants.userXpub,
     participants.heirXpub,
     nextActiveIndex,
+    account.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS,
     0,
   );
 
@@ -1713,9 +2014,17 @@ export async function createInheritancePartiallySignedTransaction(
   }
 
   const status = accountRef.inheritanceStatus;
-  if (!status || !status.requiresMultisig) {
-    throw new Error("Společné utrácení zatím není dostupné");
+  if (!status) {
+    throw new Error("Chybí aktuální stav dědického účtu");
   }
+
+  const spendingConditions =
+    accountRef.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS;
+  const spendPath = resolveInheritanceSpendPath(accountRef);
+  const requiredSequence = getSpendPathRequiredSequence(
+    spendPath,
+    spendingConditions,
+  );
 
   if (!Number.isInteger(amountSats) || amountSats <= 0) {
     throw new Error("Neplatná částka v satech");
@@ -1791,19 +2100,34 @@ export async function createInheritancePartiallySignedTransaction(
     throw new Error("Nedostatek prostředků včetně poplatku");
   }
 
-  const psbt = new bitcoin.Psbt({ network });
+  const selectedDescriptors = selected.map((utxo) =>
+    resolveInheritanceInputDescriptor(participants, spendingConditions, {
+      index: utxo.addressIndex,
+      change: utxo.change,
+      address: utxo.address,
+    }),
+  );
 
-  for (const utxo of selected) {
-    const descriptor = deriveInheritanceDescriptorFromXpubs(
-      participants.userXpub,
-      participants.heirXpub,
-      utxo.addressIndex,
-      utxo.change,
+  if (
+    spendPath !== "multisig" &&
+    selectedDescriptors.some((descriptor) => descriptor.kind === "legacy")
+  ) {
+    throw new Error(
+      "Tento účet byl aktivován ve starém režimu 2-of-2. Pro jednopodpisové utrácení je potřeba znovu aktivovat prostředky do nové timelock adresy.",
     );
+  }
+
+  const psbt = new bitcoin.Psbt({ network });
+  psbt.setVersion(2);
+
+  for (let inputIndex = 0; inputIndex < selected.length; inputIndex++) {
+    const utxo = selected[inputIndex];
+    const descriptor = selectedDescriptors[inputIndex];
 
     psbt.addInput({
       hash: utxo.txid,
       index: utxo.vout,
+      sequence: requiredSequence,
       witnessUtxo: {
         script: descriptor.output,
         value: BigInt(utxo.value),
@@ -1832,15 +2156,14 @@ export async function createInheritancePartiallySignedTransaction(
   );
   for (let index = 0; index < selected.length; index++) {
     const utxo = selected[index];
-    const child = masterKey.derive(
-      `${localBasePath}/${utxo.change}/${utxo.addressIndex}`,
+    signInheritanceInputWithFallbackPaths(
+      psbt,
+      index,
+      masterKey,
+      localBasePath,
+      utxo.change,
+      utxo.addressIndex,
     );
-    if (!child.privateKey) {
-      throw new Error("Nepodařilo se odvodit privátní klíč pro podpis");
-    }
-
-    const signer = createEcdsaSigner(Buffer.from(child.privateKey));
-    psbt.signInput(index, signer);
   }
 
   saveAccounts(accounts);
@@ -1874,8 +2197,17 @@ export async function completeInheritanceTransactionFromPsbt(
     throw new Error("Účet není aktivovaný. Nejprve aktivujte prostředky.");
   }
 
+  const spendingConditions =
+    accountRef.spendingConditions || DEFAULT_INHERITANCE_CONDITIONS;
+  const spendPath = resolveInheritanceSpendPath(accountRef);
+  const requiredSequence = getSpendPathRequiredSequence(
+    spendPath,
+    spendingConditions,
+  );
+
   const masterKey = await getMasterKeyFromMnemonic(mnemonic);
   const identity = deriveLocalIdentity(masterKey);
+  const participants = resolveInheritanceParticipants(accountRef, identity);
   const localBasePath = getInheritanceLocalBasePath(
     accountRef,
     identity.derivationPath,
@@ -1883,7 +2215,10 @@ export async function completeInheritanceTransactionFromPsbt(
 
   const psbt = bitcoin.Psbt.fromBase64(psbtBase64.trim(), { network });
 
-  const utxoLookup = new Map<string, { index: number; change: 0 | 1 }>();
+  const utxoLookup = new Map<
+    string,
+    { index: number; change: 0 | 1; address: string }
+  >();
   for (const derivedAddress of accountRef.derivedAddresses.filter((address) =>
     isActiveInheritanceAddress(address),
   )) {
@@ -1893,6 +2228,7 @@ export async function completeInheritanceTransactionFromPsbt(
       utxoLookup.set(`${utxo.txid}:${utxo.vout}`, {
         index: derivedAddress.index,
         change,
+        address: derivedAddress.address,
       });
     }
   }
@@ -1904,6 +2240,7 @@ export async function completeInheritanceTransactionFromPsbt(
   for (let inputIndex = 0; inputIndex < psbt.txInputs.length; inputIndex++) {
     const txid = getTxInputTxid(psbt, inputIndex);
     const vout = psbt.txInputs[inputIndex].index;
+    const sequence = psbt.txInputs[inputIndex].sequence ?? 0xffffffff;
     const source = utxoLookup.get(`${txid}:${vout}`);
 
     if (!source) {
@@ -1912,18 +2249,46 @@ export async function completeInheritanceTransactionFromPsbt(
       );
     }
 
-    const child = masterKey.derive(
-      `${localBasePath}/${source.change}/${source.index}`,
-    );
-    if (!child.privateKey) {
-      throw new Error("Nepodařilo se odvodit privátní klíč pro dopodepsání");
+    if (sequence < requiredSequence) {
+      throw new Error("PSBT nesplňuje potřebný timelock pro aktuální režim");
     }
 
-    const signer = createEcdsaSigner(Buffer.from(child.privateKey));
-    psbt.signInput(inputIndex, signer);
+    signInheritanceInputWithFallbackPaths(
+      psbt,
+      inputIndex,
+      masterKey,
+      localBasePath,
+      source.change,
+      source.index,
+    );
+
+    const descriptor = resolveInheritanceInputDescriptor(
+      participants,
+      spendingConditions,
+      {
+        index: source.index,
+        change: source.change,
+        address: source.address,
+      },
+    );
+
+    if (descriptor.kind === "legacy") {
+      if (spendPath !== "multisig") {
+        throw new Error(
+          "Tento PSBT utrácí starou 2-of-2 adresu, která nepodporuje jednopodpisové utrácení.",
+        );
+      }
+      finalizeLegacyMultisigInput(psbt, inputIndex, descriptor);
+    } else {
+      finalizeTimelockedInheritanceInput(
+        psbt,
+        inputIndex,
+        descriptor,
+        spendPath,
+      );
+    }
   }
 
-  psbt.finalizeAllInputs();
   const txHex = psbt.extractTransaction().toHex();
   const txid = await broadcastTransaction(txHex);
 

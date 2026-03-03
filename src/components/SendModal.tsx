@@ -23,6 +23,8 @@ interface SendModalProps {
   onSent: () => void;
 }
 
+type QrScannerModule = typeof import("qr-scanner");
+
 export function SendModal({
   account,
   accounts,
@@ -35,6 +37,15 @@ export function SendModal({
   const scanFrameRef = useRef<number | null>(null);
 
   const isInheritance = account.type === "inheritance";
+  const inheritanceStatus = account.inheritanceStatus;
+  const inheritanceLocalRole = account.localRole || "user";
+  const canLocalInheritanceSpend =
+    isInheritance &&
+    (inheritanceLocalRole === "heir"
+      ? Boolean(inheritanceStatus?.canHeirSpend)
+      : Boolean(inheritanceStatus?.canUserSpend));
+  const inheritanceNeedsCounterparty =
+    isInheritance && (inheritanceStatus?.requiresMultisig ?? true);
   const availableOwnAccountTargets: OwnRecipientOption[] = accounts
     .filter(
       (candidate) =>
@@ -109,11 +120,20 @@ export function SendModal({
   const [success, setSuccess] = useState("");
   const [isScanningRecipient, setIsScanningRecipient] = useState(false);
   const [scanError, setScanError] = useState("");
+  const qrScannerFrameRef = useRef<number | null>(null);
+  const qrScannerModulePromiseRef = useRef<Promise<QrScannerModule> | null>(
+    null,
+  );
 
   const stopScanner = () => {
     if (scanFrameRef.current !== null) {
       window.cancelAnimationFrame(scanFrameRef.current);
       scanFrameRef.current = null;
+    }
+
+    if (qrScannerFrameRef.current !== null) {
+      window.cancelAnimationFrame(qrScannerFrameRef.current);
+      qrScannerFrameRef.current = null;
     }
 
     if (streamRef.current) {
@@ -139,10 +159,60 @@ export function SendModal({
 
     if (trimmed.toLowerCase().startsWith("bitcoin:")) {
       const withoutScheme = trimmed.slice("bitcoin:".length);
-      return withoutScheme.split("?")[0].trim();
+      return decodeURIComponent(withoutScheme.split("?")[0].trim());
     }
 
     return trimmed;
+  };
+
+  const getQrScannerModule = async (): Promise<QrScannerModule> => {
+    if (!qrScannerModulePromiseRef.current) {
+      qrScannerModulePromiseRef.current = import("qr-scanner");
+    }
+
+    return qrScannerModulePromiseRef.current;
+  };
+
+  const handleScanResult = (rawValue: string): boolean => {
+    const parsedAddress = parseScannedAddress(rawValue);
+    if (!validateAddress(parsedAddress)) {
+      setScanError("QR neobsahuje platnou signet adresu.");
+      return false;
+    }
+
+    setRecipient(parsedAddress);
+    setRecipientMode("address");
+    setSuccess("Adresa příjemce naskenována.");
+    stopScanner();
+    return true;
+  };
+
+  const startQrScannerFallback = async () => {
+    const module = await getQrScannerModule();
+    const scanImage = module.default.scanImage;
+
+    const scanLoop = async () => {
+      if (!videoRef.current) {
+        return;
+      }
+
+      try {
+        const result = await scanImage(videoRef.current, {
+          returnDetailedScanResult: true,
+          alsoTryWithoutScanRegion: true,
+        });
+
+        if (result?.data && handleScanResult(result.data)) {
+          return;
+        }
+      } catch {
+        // no QR on current frame, keep scanning
+      }
+
+      qrScannerFrameRef.current = window.requestAnimationFrame(scanLoop);
+    };
+
+    qrScannerFrameRef.current = window.requestAnimationFrame(scanLoop);
   };
 
   const handleStartScan = async () => {
@@ -160,7 +230,7 @@ export function SendModal({
       }
     ).BarcodeDetector;
 
-    if (!BarcodeDetectorCtor || !navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       setScanError("Skenování QR není v tomto prohlížeči podporované.");
       return;
     }
@@ -181,6 +251,13 @@ export function SendModal({
         videoRef.current.srcObject = stream;
         void videoRef.current.play();
 
+        if (!BarcodeDetectorCtor) {
+          void startQrScannerFallback().catch(() => {
+            setScanError("Skenování se nepodařilo. Zkuste to znovu.");
+          });
+          return;
+        }
+
         const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
 
         const scanLoop = async () => {
@@ -192,17 +269,8 @@ export function SendModal({
             const barcodes = await detector.detect(videoRef.current);
             const scanned = barcodes[0]?.rawValue;
 
-            if (scanned) {
-              const parsedAddress = parseScannedAddress(scanned);
-              if (validateAddress(parsedAddress)) {
-                setRecipient(parsedAddress);
-                setRecipientMode("address");
-                setSuccess("Adresa příjemce naskenována.");
-                stopScanner();
-                return;
-              }
-
-              setScanError("QR neobsahuje platnou signet adresu.");
+            if (scanned && handleScanResult(scanned)) {
+              return;
             }
           } catch {
             setScanError("Skenování se nepodařilo. Zkuste to znovu.");
@@ -232,11 +300,13 @@ export function SendModal({
   };
 
   const validateAddress = (addr: string): boolean => {
+    const normalized = addr.trim().toLowerCase();
+
     return (
-      addr.startsWith("tb1") ||
-      addr.startsWith("m") ||
-      addr.startsWith("n") ||
-      addr.startsWith("2")
+      normalized.startsWith("tb1") ||
+      normalized.startsWith("m") ||
+      normalized.startsWith("n") ||
+      normalized.startsWith("2")
     );
   };
 
@@ -377,6 +447,53 @@ export function SendModal({
     }
   };
 
+  const handleLocalInheritanceSend = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!validateAddress(resolvedRecipientAddress)) {
+      setError("Neplatná signet adresa");
+      return;
+    }
+
+    const validated = validateAmountAndFee();
+    if (!validated) {
+      return;
+    }
+
+    setIsSending(true);
+
+    try {
+      const draft = await createInheritancePartiallySignedTransaction(
+        mnemonic,
+        account,
+        resolvedRecipientAddress,
+        validated.amountSats,
+        validated.feeRate,
+        isSendAllMode,
+      );
+
+      const txid = await completeInheritanceTransactionFromPsbt(
+        mnemonic,
+        account,
+        draft.psbt,
+      );
+
+      setSuccess(`Transakce odeslána. TXID: ${txid}`);
+
+      setTimeout(() => {
+        onSent();
+        onClose();
+      }, 2000);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Chyba při odesílání";
+      setError(message);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const handleCopyPsbt = async () => {
     if (!exportedPsbt) {
       return;
@@ -431,7 +548,7 @@ export function SendModal({
         </div>
 
         <div className="modal-body">
-          {isInheritance && (
+          {isInheritance && inheritanceNeedsCounterparty && (
             <div className="form-group">
               <label>Režim dědického odeslání</label>
               <div className="fee-options">
@@ -592,21 +709,23 @@ export function SendModal({
             </>
           )}
 
-          {isInheritance && inheritanceMode === "finalize" && (
-            <div className="form-group">
-              <label>PSBT od protistrany (base64)</label>
-              <textarea
-                value={psbtInput}
-                onChange={(e) => setPsbtInput(e.target.value)}
-                rows={5}
-                className="form-input"
-                placeholder="cHNidP8B..."
-              />
-              <div className="input-hint">
-                Vložte částečně podepsanou PSBT a odešlete na síť.
+          {isInheritance &&
+            inheritanceNeedsCounterparty &&
+            inheritanceMode === "finalize" && (
+              <div className="form-group">
+                <label>PSBT od protistrany (base64)</label>
+                <textarea
+                  value={psbtInput}
+                  onChange={(e) => setPsbtInput(e.target.value)}
+                  rows={5}
+                  className="form-input"
+                  placeholder="cHNidP8B..."
+                />
+                <div className="input-hint">
+                  Vložte částečně podepsanou PSBT a odešlete na síť.
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {isInheritance && exportedPsbt && (
             <div className="form-group">
@@ -640,25 +759,41 @@ export function SendModal({
             </button>
           )}
 
-          {isInheritance && inheritanceMode === "create" && (
-            <button
-              onClick={handleCreatePartial}
-              disabled={isSending || !resolvedRecipientAddress || !amount}
-              className="btn-primary btn-full"
-            >
-              {isSending ? "Podepisování..." : "Podepsat a exportovat PSBT"}
-            </button>
-          )}
+          {isInheritance &&
+            inheritanceNeedsCounterparty &&
+            inheritanceMode === "create" && (
+              <button
+                onClick={handleCreatePartial}
+                disabled={isSending || !resolvedRecipientAddress || !amount}
+                className="btn-primary btn-full"
+              >
+                {isSending ? "Podepisování..." : "Podepsat a exportovat PSBT"}
+              </button>
+            )}
 
-          {isInheritance && inheritanceMode === "finalize" && (
-            <button
-              onClick={handleFinalizeAndBroadcast}
-              disabled={isSending || !psbtInput.trim()}
-              className="btn-primary btn-full"
-            >
-              {isSending ? "Dopodepisování..." : "Dopodepsat a odeslat"}
-            </button>
-          )}
+          {isInheritance &&
+            canLocalInheritanceSpend &&
+            !inheritanceNeedsCounterparty && (
+              <button
+                onClick={handleLocalInheritanceSend}
+                disabled={isSending || !resolvedRecipientAddress || !amount}
+                className="btn-primary btn-full"
+              >
+                {isSending ? "Odesílání..." : "Odeslat"}
+              </button>
+            )}
+
+          {isInheritance &&
+            inheritanceNeedsCounterparty &&
+            inheritanceMode === "finalize" && (
+              <button
+                onClick={handleFinalizeAndBroadcast}
+                disabled={isSending || !psbtInput.trim()}
+                className="btn-primary btn-full"
+              >
+                {isSending ? "Dopodepisování..." : "Dopodepsat a odeslat"}
+              </button>
+            )}
         </div>
       </div>
     </div>

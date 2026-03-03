@@ -54,9 +54,11 @@ body {
     linear-gradient(145deg, #121733 0%, #151d3a 45%, #182141 100%);
   color: #fff;
   min-height: 100vh;
+  min-height: 100dvh;
   letter-spacing: 0.01em;
   overflow-x: hidden;
   overscroll-behavior-y: none;
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .app-loading {
