@@ -1,5 +1,6 @@
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
+import type { AppLanguage } from "../constants";
 import { NETWORK_CONFIG } from "../constants";
 import {
   generateNewAddress,
@@ -13,18 +14,56 @@ import "./Modal.css";
 interface ReceiveModalProps {
   account: Account;
   mnemonic: string;
+  language: AppLanguage;
   onClose: () => void;
 }
 
 export function ReceiveModal({
   account,
   mnemonic,
+  language,
   onClose,
 }: ReceiveModalProps) {
   const [address, setAddress] = useState<string>("");
   const [addressError, setAddressError] = useState("");
   const [copied, setCopied] = useState(false);
   const network = loadActiveNetwork();
+  const labels =
+    language === "cs"
+      ? {
+          activatedClosed:
+            "Účet je aktivovaný. Na funding adresy už nelze přijímat další prostředky.",
+          addressCreateFailed: "Adresu se nepodařilo vytvořit",
+          title: "Přijmout Bitcoin",
+          activatedDescription:
+            "Účet je už aktivovaný. Funding fáze je uzavřená a nové vklady už nepřijímá.",
+          fundingDescription:
+            "Tato adresa je funding multisig (uživatel + server). Po přijetí prostředků použijte Aktivovat prostředky pro přesun na dědický účet.",
+          receiveDescription:
+            "Naskenujte QR kód nebo zkopírujte adresu pro příjem signet bitcoinů",
+          receiveUnavailable: "Příjem není dostupný",
+          loading: "Načítání...",
+          copied: "✓ Zkopírováno",
+          copy: "Kopírovat",
+          addressPrefix: 'adresy začínají na "tb1..."',
+        }
+      : {
+          activatedClosed:
+            "Account is activated. Funding addresses no longer accept new deposits.",
+          addressCreateFailed: "Failed to generate address",
+          title: "Receive Bitcoin",
+          activatedDescription:
+            "This account is already activated. Funding phase is closed and no longer accepts deposits.",
+          fundingDescription:
+            "This is a funding multisig address (user + server). After funds arrive, use Activate funds to move them into the inheritance account.",
+          receiveDescription:
+            "Scan QR code or copy address to receive signet bitcoin",
+          receiveUnavailable: "Receive is unavailable",
+          loading: "Loading...",
+          copied: "✓ Copied",
+          copy: "Copy",
+          addressPrefix: 'addresses start with "tb1..."',
+        };
   const isActivatedInheritance =
     account.type === "inheritance" && isInheritanceAccountActivated(account);
 
@@ -34,9 +73,7 @@ export function ReceiveModal({
 
       if (account.type === "inheritance" && isActivatedInheritance) {
         setAddress("");
-        setAddressError(
-          "Účet je aktivovaný. Na funding adresy už nelze přijímat další prostředky.",
-        );
+        setAddressError(labels.activatedClosed);
         return;
       }
 
@@ -49,9 +86,7 @@ export function ReceiveModal({
           setAddress(newAddr.address);
         } catch (error) {
           const message =
-            error instanceof Error
-              ? error.message
-              : "Adresu se nepodařilo vytvořit";
+            error instanceof Error ? error.message : labels.addressCreateFailed;
           setAddress("");
           setAddressError(message);
         }
@@ -59,7 +94,7 @@ export function ReceiveModal({
     };
 
     void loadAddress();
-  }, [account, mnemonic, isActivatedInheritance]);
+  }, [account, mnemonic, isActivatedInheritance, language]);
 
   const handleCopy = () => {
     if (!address) {
@@ -74,7 +109,7 @@ export function ReceiveModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Přijmout Bitcoin</h2>
+          <h2>{labels.title}</h2>
           <button className="modal-close" onClick={onClose}>
             ×
           </button>
@@ -83,10 +118,10 @@ export function ReceiveModal({
         <div className="modal-body">
           <p className="modal-description">
             {account.type === "inheritance" && isActivatedInheritance
-              ? "Účet je už aktivovaný. Funding fáze je uzavřená a nové vklady už nepřijímá."
+              ? labels.activatedDescription
               : account.type === "inheritance"
-                ? "Tato adresa je funding multisig (uživatel + server). Po přijetí prostředků použijte Aktivovat prostředky pro přesun na dědický účet."
-                : "Naskenujte QR kód nebo zkopírujte adresu pro příjem signet bitcoinů"}
+                ? labels.fundingDescription
+                : labels.receiveDescription}
           </p>
 
           <div className="qr-container">
@@ -100,7 +135,7 @@ export function ReceiveModal({
               />
             ) : (
               <div className="qr-loading">
-                {addressError ? "Příjem není dostupný" : "Načítání..."}
+                {addressError ? labels.receiveUnavailable : labels.loading}
               </div>
             )}
           </div>
@@ -112,14 +147,14 @@ export function ReceiveModal({
               disabled={!address}
               className={`copy-btn ${copied ? "copied" : ""}`}
             >
-              {copied ? "✓ Zkopírováno" : "Kopírovat"}
+              {copied ? labels.copied : labels.copy}
             </button>
           </div>
 
           {addressError && <div className="error-message">{addressError}</div>}
 
           <div className="network-badge">
-            {NETWORK_CONFIG[network].label} adresy začínají na "tb1..."
+            {NETWORK_CONFIG[network].label} {labels.addressPrefix}
           </div>
         </div>
       </div>

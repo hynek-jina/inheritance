@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { AppLanguage } from "../constants";
 import {
   calculateMaxSendAmountNoChange,
   completeInheritanceTransactionFromPsbt,
@@ -19,6 +20,7 @@ interface SendModalProps {
   account: Account;
   accounts: Account[];
   mnemonic: string;
+  language: AppLanguage;
   onClose: () => void;
   onSent: () => void;
 }
@@ -29,9 +31,133 @@ export function SendModal({
   account,
   accounts,
   mnemonic,
+  language,
   onClose,
   onSent,
 }: SendModalProps) {
+  const locale = language === "cs" ? "cs-CZ" : "en-US";
+  const labels =
+    language === "cs"
+      ? {
+          accountStandard: "Standardní",
+          accountInheritance: "Dědický",
+          invalidQrAddress: "QR neobsahuje platnou signet adresu.",
+          scannedRecipient: "Adresa příjemce naskenována.",
+          scanUnsupported: "Skenování QR není v tomto prohlížeči podporované.",
+          scanFailed: "Skenování se nepodařilo. Zkuste to znovu.",
+          cameraAccessFailed: "Nepodařilo se získat přístup ke kameře.",
+          invalidAmount: "Zadejte platnou částku v satech",
+          invalidFee: "Zadejte platný fee",
+          insufficientFunds: "Nedostatek prostředků",
+          invalidAddress: "Neplatná signet adresa",
+          txSent: (txid: string) => `Transakce odeslána. TXID: ${txid}`,
+          sendError: "Chyba při odesílání",
+          psbtCreatedWithChange: (
+            feeAmount: number,
+            changeAmount: number,
+            changeAddress: string,
+          ) =>
+            `PSBT vytvořeno. Fee: ${feeAmount} sats. Change: ${changeAmount} sats → ${changeAddress}`,
+          psbtCreated: (feeAmount: number) =>
+            `PSBT vytvořeno. Fee: ${feeAmount} sats.`,
+          psbtCreateError: "Chyba při tvorbě PSBT",
+          enterPsbt: "Vložte PSBT k dopodepsání",
+          txFinalized: (txid: string) =>
+            `Transakce dopodepsána a odeslána. TXID: ${txid}`,
+          psbtFinalizeError: "Chyba při dopodepsání PSBT",
+          psbtCopied: "PSBT zkopírováno do schránky.",
+          psbtCopyFailed: "PSBT nešlo zkopírovat do schránky",
+          sendAllSet: (amountSats: number, feeAmount: number) =>
+            `Nastaveno maximum ${amountSats.toLocaleString("cs-CZ")} sats (fee ${feeAmount.toLocaleString("cs-CZ")} sats).`,
+          sendAllCalcError: "Částku pro odeslání všeho se nepodařilo spočítat",
+          title: "Odeslat Bitcoin",
+          inheritanceSendMode: "Režim dědického odeslání",
+          createAndSignPsbt: "Vytvořit + podepsat PSBT",
+          finalizeAndSendPsbt: "Vložit PSBT a odeslat",
+          sendTarget: "Cíl odeslání",
+          address: "Adresa",
+          ownAccount: "Můj účet",
+          chooseOwnAccount: "Vyberte vlastní účet",
+          recipientAddress: "Adresa příjemce",
+          chooseAccount: "Vyberte účet",
+          stopScan: "Zastavit skenování",
+          startScan: "Naskenovat adresu",
+          accountAddress: "Adresa účtu",
+          amount: "Částka (sats)",
+          available: "Dostupné",
+          sendAll: "Odeslat vše",
+          fee: "Fee (sat/vB)",
+          counterpartyPsbt: "PSBT od protistrany (base64)",
+          psbtHint: "Vložte částečně podepsanou PSBT a odešlete na síť.",
+          exportedPsbt: "Exportovaná PSBT",
+          copyPsbt: "Zkopírovat PSBT",
+          sending: "Odesílání...",
+          send: "Odeslat",
+          signing: "Podepisování...",
+          signAndExport: "Podepsat a exportovat PSBT",
+          cosigning: "Dopodepisování...",
+          cosignAndSend: "Dopodepsat a odeslat",
+        }
+      : {
+          accountStandard: "Standard",
+          accountInheritance: "Inheritance",
+          invalidQrAddress: "QR does not contain a valid signet address.",
+          scannedRecipient: "Recipient address scanned.",
+          scanUnsupported: "QR scanning is not supported in this browser.",
+          scanFailed: "Scanning failed. Please try again.",
+          cameraAccessFailed: "Failed to access camera.",
+          invalidAmount: "Enter a valid amount in sats",
+          invalidFee: "Enter a valid fee",
+          insufficientFunds: "Insufficient funds",
+          invalidAddress: "Invalid signet address",
+          txSent: (txid: string) => `Transaction sent. TXID: ${txid}`,
+          sendError: "Error while sending",
+          psbtCreatedWithChange: (
+            feeAmount: number,
+            changeAmount: number,
+            changeAddress: string,
+          ) =>
+            `PSBT created. Fee: ${feeAmount} sats. Change: ${changeAmount} sats → ${changeAddress}`,
+          psbtCreated: (feeAmount: number) =>
+            `PSBT created. Fee: ${feeAmount} sats.`,
+          psbtCreateError: "Error creating PSBT",
+          enterPsbt: "Paste PSBT to cosign",
+          txFinalized: (txid: string) =>
+            `Transaction cosigned and sent. TXID: ${txid}`,
+          psbtFinalizeError: "Error while cosigning PSBT",
+          psbtCopied: "PSBT copied to clipboard.",
+          psbtCopyFailed: "Failed to copy PSBT to clipboard",
+          sendAllSet: (amountSats: number, feeAmount: number) =>
+            `Maximum set to ${amountSats.toLocaleString("en-US")} sats (fee ${feeAmount.toLocaleString("en-US")} sats).`,
+          sendAllCalcError: "Failed to calculate send-all amount",
+          title: "Send Bitcoin",
+          inheritanceSendMode: "Inheritance sending mode",
+          createAndSignPsbt: "Create + sign PSBT",
+          finalizeAndSendPsbt: "Paste PSBT and send",
+          sendTarget: "Send target",
+          address: "Address",
+          ownAccount: "My account",
+          chooseOwnAccount: "Select your account",
+          recipientAddress: "Recipient address",
+          chooseAccount: "Select account",
+          stopScan: "Stop scanning",
+          startScan: "Scan address",
+          accountAddress: "Account address",
+          amount: "Amount (sats)",
+          available: "Available",
+          sendAll: "Send all",
+          fee: "Fee (sat/vB)",
+          counterpartyPsbt: "Counterparty PSBT (base64)",
+          psbtHint: "Paste partially signed PSBT and broadcast it.",
+          exportedPsbt: "Exported PSBT",
+          copyPsbt: "Copy PSBT",
+          sending: "Sending...",
+          send: "Send",
+          signing: "Signing...",
+          signAndExport: "Sign and export PSBT",
+          cosigning: "Cosigning...",
+          cosignAndSend: "Cosign and send",
+        };
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanFrameRef = useRef<number | null>(null);
@@ -93,7 +219,7 @@ export function SendModal({
 
       return {
         accountId: candidate.id,
-        accountLabel: `${candidate.name} (${candidate.type === "standard" ? "Standardní" : "Dědický"})`,
+        accountLabel: `${candidate.name} (${candidate.type === "standard" ? labels.accountStandard : labels.accountInheritance})`,
         address: preferredAddress.address,
       };
     })
@@ -176,13 +302,13 @@ export function SendModal({
   const handleScanResult = (rawValue: string): boolean => {
     const parsedAddress = parseScannedAddress(rawValue);
     if (!validateAddress(parsedAddress)) {
-      setScanError("QR neobsahuje platnou signet adresu.");
+      setScanError(labels.invalidQrAddress);
       return false;
     }
 
     setRecipient(parsedAddress);
     setRecipientMode("address");
-    setSuccess("Adresa příjemce naskenována.");
+    setSuccess(labels.scannedRecipient);
     stopScanner();
     return true;
   };
@@ -231,7 +357,7 @@ export function SendModal({
     ).BarcodeDetector;
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setScanError("Skenování QR není v tomto prohlížeči podporované.");
+      setScanError(labels.scanUnsupported);
       return;
     }
 
@@ -253,7 +379,7 @@ export function SendModal({
 
         if (!BarcodeDetectorCtor) {
           void startQrScannerFallback().catch(() => {
-            setScanError("Skenování se nepodařilo. Zkuste to znovu.");
+            setScanError(labels.scanFailed);
           });
           return;
         }
@@ -273,7 +399,7 @@ export function SendModal({
               return;
             }
           } catch {
-            setScanError("Skenování se nepodařilo. Zkuste to znovu.");
+            setScanError(labels.scanFailed);
           }
 
           scanFrameRef.current = window.requestAnimationFrame(scanLoop);
@@ -282,7 +408,7 @@ export function SendModal({
         scanFrameRef.current = window.requestAnimationFrame(scanLoop);
       }, 0);
     } catch {
-      setScanError("Nepodařilo se získat přístup ke kameře.");
+      setScanError(labels.cameraAccessFailed);
       stopScanner();
     }
   };
@@ -316,18 +442,18 @@ export function SendModal({
   } | null => {
     const amountSats = parseInt(amount, 10);
     if (!Number.isInteger(amountSats) || amountSats <= 0) {
-      setError("Zadejte platnou částku v satech");
+      setError(labels.invalidAmount);
       return null;
     }
 
     const feeRate = parseInt(fee, 10);
     if (Number.isNaN(feeRate) || feeRate <= 0) {
-      setError("Zadejte platný fee");
+      setError(labels.invalidFee);
       return null;
     }
 
     if (amountSats > account.balance) {
-      setError("Nedostatek prostředků");
+      setError(labels.insufficientFunds);
       return null;
     }
 
@@ -340,7 +466,7 @@ export function SendModal({
 
     // Validation
     if (!validateAddress(resolvedRecipientAddress)) {
-      setError("Neplatná signet adresa");
+      setError(labels.invalidAddress);
       return;
     }
 
@@ -361,15 +487,14 @@ export function SendModal({
         feeRate,
         isSendAllMode,
       );
-      setSuccess(`Transakce odeslána. TXID: ${txid}`);
+      setSuccess(labels.txSent(txid));
 
       setTimeout(() => {
         onSent();
         onClose();
       }, 2000);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Chyba při odesílání";
+      const message = err instanceof Error ? err.message : labels.sendError;
       setError(message);
     } finally {
       setIsSending(false);
@@ -381,7 +506,7 @@ export function SendModal({
     setSuccess("");
 
     if (!validateAddress(resolvedRecipientAddress)) {
-      setError("Neplatná signet adresa");
+      setError(labels.invalidAddress);
       return;
     }
 
@@ -404,12 +529,16 @@ export function SendModal({
       setExportedPsbt(draft.psbt);
       setSuccess(
         draft.changeAddress
-          ? `PSBT vytvořeno. Fee: ${draft.fee} sats. Change: ${draft.changeAmount} sats → ${draft.changeAddress}`
-          : `PSBT vytvořeno. Fee: ${draft.fee} sats.`,
+          ? labels.psbtCreatedWithChange(
+              draft.fee,
+              draft.changeAmount,
+              draft.changeAddress,
+            )
+          : labels.psbtCreated(draft.fee),
       );
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "Chyba při tvorbě PSBT";
+        err instanceof Error ? err.message : labels.psbtCreateError;
       setError(message);
     } finally {
       setIsSending(false);
@@ -421,7 +550,7 @@ export function SendModal({
     setSuccess("");
 
     if (!psbtInput.trim()) {
-      setError("Vložte PSBT k dopodepsání");
+      setError(labels.enterPsbt);
       return;
     }
 
@@ -432,7 +561,7 @@ export function SendModal({
         account,
         psbtInput,
       );
-      setSuccess(`Transakce dopodepsána a odeslána. TXID: ${txid}`);
+      setSuccess(labels.txFinalized(txid));
 
       setTimeout(() => {
         onSent();
@@ -440,7 +569,7 @@ export function SendModal({
       }, 2000);
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "Chyba při dopodepsání PSBT";
+        err instanceof Error ? err.message : labels.psbtFinalizeError;
       setError(message);
     } finally {
       setIsSending(false);
@@ -452,7 +581,7 @@ export function SendModal({
     setSuccess("");
 
     if (!validateAddress(resolvedRecipientAddress)) {
-      setError("Neplatná signet adresa");
+      setError(labels.invalidAddress);
       return;
     }
 
@@ -479,15 +608,14 @@ export function SendModal({
         draft.psbt,
       );
 
-      setSuccess(`Transakce odeslána. TXID: ${txid}`);
+      setSuccess(labels.txSent(txid));
 
       setTimeout(() => {
         onSent();
         onClose();
       }, 2000);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Chyba při odesílání";
+      const message = err instanceof Error ? err.message : labels.sendError;
       setError(message);
     } finally {
       setIsSending(false);
@@ -501,9 +629,9 @@ export function SendModal({
 
     try {
       await navigator.clipboard.writeText(exportedPsbt);
-      setSuccess("PSBT zkopírováno do schránky.");
+      setSuccess(labels.psbtCopied);
     } catch {
-      setError("PSBT nešlo zkopírovat do schránky");
+      setError(labels.psbtCopyFailed);
     }
   };
 
@@ -513,7 +641,7 @@ export function SendModal({
 
     const feeRate = parseInt(fee, 10);
     if (Number.isNaN(feeRate) || feeRate <= 0) {
-      setError("Zadejte platný fee");
+      setError(labels.invalidFee);
       return;
     }
 
@@ -523,14 +651,10 @@ export function SendModal({
         await calculateMaxSendAmountNoChange(mnemonic, account, feeRate);
       setAmount(String(amountSats));
       setIsSendAllMode(true);
-      setSuccess(
-        `Nastaveno maximum ${amountSats.toLocaleString("cs-CZ")} sats (fee ${calculatedFee.toLocaleString("cs-CZ")} sats).`,
-      );
+      setSuccess(labels.sendAllSet(amountSats, calculatedFee));
     } catch (err: unknown) {
       const message =
-        err instanceof Error
-          ? err.message
-          : "Částku pro odeslání všeho se nepodařilo spočítat";
+        err instanceof Error ? err.message : labels.sendAllCalcError;
       setError(message);
     } finally {
       setIsSending(false);
@@ -541,7 +665,7 @@ export function SendModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Odeslat Bitcoin</h2>
+          <h2>{labels.title}</h2>
           <button className="modal-close" onClick={onClose}>
             ×
           </button>
@@ -550,21 +674,21 @@ export function SendModal({
         <div className="modal-body">
           {isInheritance && inheritanceNeedsCounterparty && (
             <div className="form-group">
-              <label>Režim dědického odeslání</label>
+              <label>{labels.inheritanceSendMode}</label>
               <div className="fee-options">
                 <button
                   type="button"
                   onClick={() => setInheritanceMode("create")}
                   className={`fee-btn ${inheritanceMode === "create" ? "active" : ""}`}
                 >
-                  Vytvořit + podepsat PSBT
+                  {labels.createAndSignPsbt}
                 </button>
                 <button
                   type="button"
                   onClick={() => setInheritanceMode("finalize")}
                   className={`fee-btn ${inheritanceMode === "finalize" ? "active" : ""}`}
                 >
-                  Vložit PSBT a odeslat
+                  {labels.finalizeAndSendPsbt}
                 </button>
               </div>
             </div>
@@ -574,21 +698,21 @@ export function SendModal({
             <>
               {availableOwnAccountTargets.length > 0 && (
                 <div className="form-group">
-                  <label>Cíl odeslání</label>
+                  <label>{labels.sendTarget}</label>
                   <div className="fee-options">
                     <button
                       type="button"
                       onClick={() => setRecipientMode("address")}
                       className={`fee-btn ${recipientMode === "address" ? "active" : ""}`}
                     >
-                      Adresa
+                      {labels.address}
                     </button>
                     <button
                       type="button"
                       onClick={() => setRecipientMode("account")}
                       className={`fee-btn ${recipientMode === "account" ? "active" : ""}`}
                     >
-                      Můj účet
+                      {labels.ownAccount}
                     </button>
                   </div>
                 </div>
@@ -597,8 +721,8 @@ export function SendModal({
               <div className="form-group">
                 <label>
                   {recipientMode === "account"
-                    ? "Vyberte vlastní účet"
-                    : "Adresa příjemce"}
+                    ? labels.chooseOwnAccount
+                    : labels.recipientAddress}
                 </label>
                 {recipientMode === "account" ? (
                   <select
@@ -606,7 +730,7 @@ export function SendModal({
                     onChange={(e) => setSelectedOwnAccountId(e.target.value)}
                     className="form-input"
                   >
-                    <option value="">Vyberte účet</option>
+                    <option value="">{labels.chooseAccount}</option>
                     {availableOwnAccountTargets.map((target) => (
                       <option key={target.accountId} value={target.accountId}>
                         {target.accountLabel}
@@ -629,9 +753,7 @@ export function SendModal({
                         isScanningRecipient ? stopScanner : handleStartScan
                       }
                     >
-                      {isScanningRecipient
-                        ? "Zastavit skenování"
-                        : "Naskenovat adresu"}
+                      {isScanningRecipient ? labels.stopScan : labels.startScan}
                     </button>
 
                     {isScanningRecipient && (
@@ -650,13 +772,13 @@ export function SendModal({
                 )}
                 {recipientMode === "account" && resolvedRecipientAddress && (
                   <div className="input-hint mono">
-                    Adresa účtu: {resolvedRecipientAddress}
+                    {labels.accountAddress}: {resolvedRecipientAddress}
                   </div>
                 )}
               </div>
 
               <div className="form-group">
-                <label>Částka (sats)</label>
+                <label>{labels.amount}</label>
                 <input
                   type="text"
                   value={amount}
@@ -668,7 +790,8 @@ export function SendModal({
                   className="form-input"
                 />
                 <div className="input-hint">
-                  Dostupné: {account.balance.toLocaleString("cs-CZ")} sats
+                  {labels.available}: {account.balance.toLocaleString(locale)}{" "}
+                  sats
                 </div>
                 <button
                   type="button"
@@ -676,12 +799,12 @@ export function SendModal({
                   onClick={handleSendAll}
                   disabled={isSending}
                 >
-                  Odeslat vše
+                  {labels.sendAll}
                 </button>
               </div>
 
               <div className="form-group">
-                <label>Fee (sat/vB)</label>
+                <label>{labels.fee}</label>
                 <div className="fee-options">
                   <button
                     type="button"
@@ -713,7 +836,7 @@ export function SendModal({
             inheritanceNeedsCounterparty &&
             inheritanceMode === "finalize" && (
               <div className="form-group">
-                <label>PSBT od protistrany (base64)</label>
+                <label>{labels.counterpartyPsbt}</label>
                 <textarea
                   value={psbtInput}
                   onChange={(e) => setPsbtInput(e.target.value)}
@@ -721,15 +844,13 @@ export function SendModal({
                   className="form-input"
                   placeholder="cHNidP8B..."
                 />
-                <div className="input-hint">
-                  Vložte částečně podepsanou PSBT a odešlete na síť.
-                </div>
+                <div className="input-hint">{labels.psbtHint}</div>
               </div>
             )}
 
           {isInheritance && exportedPsbt && (
             <div className="form-group">
-              <label>Exportovaná PSBT</label>
+              <label>{labels.exportedPsbt}</label>
               <textarea
                 value={exportedPsbt}
                 rows={5}
@@ -741,7 +862,7 @@ export function SendModal({
                 className="btn-secondary btn-full"
                 onClick={handleCopyPsbt}
               >
-                Zkopírovat PSBT
+                {labels.copyPsbt}
               </button>
             </div>
           )}
@@ -755,7 +876,7 @@ export function SendModal({
               disabled={isSending || !resolvedRecipientAddress || !amount}
               className="btn-primary btn-full"
             >
-              {isSending ? "Odesílání..." : "Odeslat"}
+              {isSending ? labels.sending : labels.send}
             </button>
           )}
 
@@ -767,7 +888,7 @@ export function SendModal({
                 disabled={isSending || !resolvedRecipientAddress || !amount}
                 className="btn-primary btn-full"
               >
-                {isSending ? "Podepisování..." : "Podepsat a exportovat PSBT"}
+                {isSending ? labels.signing : labels.signAndExport}
               </button>
             )}
 
@@ -779,7 +900,7 @@ export function SendModal({
                 disabled={isSending || !resolvedRecipientAddress || !amount}
                 className="btn-primary btn-full"
               >
-                {isSending ? "Odesílání..." : "Odeslat"}
+                {isSending ? labels.sending : labels.send}
               </button>
             )}
 
@@ -791,7 +912,7 @@ export function SendModal({
                 disabled={isSending || !psbtInput.trim()}
                 className="btn-primary btn-full"
               >
-                {isSending ? "Dopodepisování..." : "Dopodepsat a odeslat"}
+                {isSending ? labels.cosigning : labels.cosignAndSend}
               </button>
             )}
         </div>

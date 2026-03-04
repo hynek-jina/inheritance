@@ -55,7 +55,13 @@ function App() {
     <Routes>
       <Route
         path="/welcome"
-        element={<Welcome onWalletCreated={handleWalletCreated} />}
+        element={
+          <Welcome
+            onWalletCreated={handleWalletCreated}
+            language={language}
+            onLanguageChange={handleLanguageChange}
+          />
+        }
       />
       <Route
         path="/"

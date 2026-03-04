@@ -18,6 +18,31 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
+.welcome-language-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.welcome-lang-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+}
+
+.welcome-lang-btn.active {
+  background: rgba(66, 130, 211, 0.95);
+  color: #fff;
+}
+
 .logo {
   width: 80px;
   height: 80px;

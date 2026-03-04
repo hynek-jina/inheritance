@@ -27,7 +27,11 @@ type InheritanceSpendStage =
   | "counterpartyOnly"
   | "bothSingle";
 
-function pluralizeBlocks(blocks: number): string {
+function pluralizeBlocks(blocks: number, language: AppLanguage): string {
+  if (language === "en") {
+    return blocks === 1 ? "block" : "blocks";
+  }
+
   if (blocks === 1) {
     return "blok";
   }
@@ -44,6 +48,7 @@ function getInheritanceSendHint(
   role: "user" | "heir",
   blocksSinceFunding: number,
   conditions: SpendingConditions,
+  language: AppLanguage,
 ): {
   disabled: boolean;
   reason: string;
@@ -64,40 +69,82 @@ function getInheritanceSendHint(
   if (!activated) {
     return {
       disabled: true,
-      reason: "Nejdřív aktivujte účet. Odpočet bloků začne až po aktivaci.",
+      reason:
+        language === "cs"
+          ? "Nejdřív aktivujte účet. Odpočet bloků začne až po aktivaci."
+          : "Activate the account first. Block countdown starts only after activation.",
     };
   }
 
   if (blocksToSingleKey === 0) {
     return {
       disabled: false,
-      reason: "Odeslání je dostupné i samostatně.",
+      reason:
+        language === "cs"
+          ? "Odeslání je dostupné i samostatně."
+          : "Sending is available in single-signature mode.",
     };
   }
 
   if (blocksToMultisig > 0) {
-    const cosignerLabel = role === "user" ? "dědicem" : "uživatelem";
+    const cosignerLabel =
+      language === "cs"
+        ? role === "user"
+          ? "dědicem"
+          : "uživatelem"
+        : role === "user"
+          ? "heir"
+          : "owner";
     return {
       disabled: true,
-      reason: `Za ${blocksToMultisig} ${pluralizeBlocks(blocksToMultisig)} s ${cosignerLabel}.`,
+      reason:
+        language === "cs"
+          ? `Za ${blocksToMultisig} ${pluralizeBlocks(blocksToMultisig, language)} s ${cosignerLabel}.`
+          : `In ${blocksToMultisig} ${pluralizeBlocks(blocksToMultisig, language)} with ${cosignerLabel}.`,
     };
   }
 
   return {
     disabled: false,
-    reason: `Společné odeslání je možné hned. Za ${blocksToSingleKey} ${pluralizeBlocks(blocksToSingleKey)} půjde odeslat samostatně.`,
+    reason:
+      language === "cs"
+        ? `Společné odeslání je možné hned. Za ${blocksToSingleKey} ${pluralizeBlocks(blocksToSingleKey, language)} půjde odeslat samostatně.`
+        : `Shared sending is available now. In ${blocksToSingleKey} ${pluralizeBlocks(blocksToSingleKey, language)} single-signature sending becomes available.`,
   };
 }
 
-function blocksToMinutesEstimate(blocks: number): string {
+function blocksToMinutesEstimate(
+  blocks: number,
+  language: AppLanguage,
+): string {
   const minutes = Math.max(0, blocks) * 10;
-  return `za ~${minutes} min`;
+  return language === "cs" ? `za ~${minutes} min` : `in ~${minutes} min`;
 }
 
 function getInheritanceStageLabel(
   stage: InheritanceSpendStage,
   role: "user" | "heir",
+  language: AppLanguage,
 ): string {
+  if (language === "en") {
+    switch (stage) {
+      case "awaitingActivation":
+        return "Awaiting activation";
+      case "locked":
+        return "Activated";
+      case "multisig":
+        return "Available together";
+      case "localOnly":
+        return "Available for you";
+      case "counterpartyOnly":
+        return role === "heir" ? "Available for owner" : "Available for heir";
+      case "bothSingle":
+        return "Available for both";
+      default:
+        return "Inheritance account";
+    }
+  }
+
   switch (stage) {
     case "awaitingActivation":
       return "Čeká na aktivaci";
@@ -120,12 +167,13 @@ function getStageEtaSuffix(
   blocks: number,
   stage: InheritanceSpendStage,
   currentStage: InheritanceSpendStage | null,
+  language: AppLanguage,
 ): string {
   if (blocks <= 0 || stage === currentStage) {
     return "";
   }
 
-  return ` (${blocksToMinutesEstimate(blocks)})`;
+  return ` (${blocksToMinutesEstimate(blocks, language)})`;
 }
 
 function getCurrentInheritanceSpendStage(
@@ -195,14 +243,154 @@ export function AccountDetailPage({
   onSend,
 }: AccountDetailPageProps) {
   const locale = language === "cs" ? "cs-CZ" : "en-US";
-  const txLabels =
+  const labels =
     language === "cs"
       ? {
+          accountTypeStandard: "Standardní účet",
+          accountTypeInheritance: "Dědický účet",
+          active: "Aktivní",
+          activated: "Aktivováno",
+          awaitingActivation: "Čeká na aktivaci",
+          activationDone: (movedAmount: number, txid: string) =>
+            `Aktivace hotová. Přesunuto ${movedAmount.toLocaleString("cs-CZ")} sats na dědický účet. TXID: ${txid.slice(0, 12)}…`,
+          activationFailed: "Aktivace selhala",
+          accountCopied: "Údaje dědického účtu byly zkopírovány.",
+          copyAccountFailed: "Účet se nepodařilo zkopírovat",
+          renamePrompt: "Nový název účtu:",
+          renameFailed: "Účet se nepodařilo přejmenovat",
+          deleteConfirm: (name: string) =>
+            `Opravdu chcete smazat účet "${name}"?`,
+          deleteFailed: "Účet se nepodařilo smazat",
+          noData: "Bez dat.",
+          hasBalance: "Má zůstatek",
+          noBalance: "Bez zůstatku",
+          totalSent: "Posláno celkem",
+          remaining: "Zbývá",
+          back: "Zpět",
+          refresh: "Obnovit",
+          receiveFunds: "Přijmout prostředky",
+          send: "Odeslat",
+          activating: "Aktivace...",
+          activate: "🌱 Aktivovat",
+          activateTitle:
+            "Přesunout prostředky z uživatel+server multisigu do dědického účtu",
+          sendUnavailable: "Odeslání zatím není dostupné",
+          receiveClosed:
+            "Příjem je po aktivaci uzavřený. Nové prostředky už nelze přidávat.",
+          awaitingActivationWithBalance: (balance: number) =>
+            `Čeká na aktivaci: ${balance.toLocaleString("cs-CZ")} sats`,
+          whoCanSpend: "Kdo může utrácet prostředky",
+          frozen: "Zmrazeno",
+          waitingForActivation: "Čeká na aktivaci účtu",
+          activatedState: "Aktivováno",
+          noOneCanSpend: "Nikdo nemůže utrácet",
+          availableTogether: "Dostupné společně",
+          userAndHeirTogether: "Uživatel + dědic společně",
+          availableForYou: "Dostupné pro vás",
+          youCanSpendAlone: "Samostatně můžete utrácet",
+          availableForOwner: "Dostupné pro majitele",
+          availableForHeir: "Dostupné pro dědice",
+          ownerCanSpendAlone: "Samostatně může utrácet majitel účtu",
+          heirCanSpendAlone: "Samostatně může utrácet dědic",
+          manageAccount: "Správa účtu",
+          renaming: "Přejmenovávám...",
+          renameAccount: "Přejmenovat účet",
+          copying: "Kopíruji...",
+          copyAccount: "Kopírovat účet",
+          deleting: "Mažu...",
+          deleteAccount: "Smazat účet",
+          accountInfo: "Informace o účtu",
+          loadingDetails: "Načítání detailů...",
+          derivationPath: "Derivační cesta",
+          myRole: "Moje role",
+          user: "Uživatel",
+          heir: "Dědic",
+          userFingerprint: "Fingerprint uživatele",
+          heirFingerprint: "Fingerprint dědice",
+          userXpub: "tpub uživatele",
+          heirXpub: "tpub dědice",
+          txHistory: "Transakční historie",
+          noTransactions: "Zatím bez transakcí.",
+          openOnMempool: "Otevřít transakci na mempool.space",
+          addressAudit: "Kontrola adres (prvních 10)",
+          loadingAddresses: "Načítání adres...",
+          receiveAddresses: "Receive adresy",
+          changeAddresses: "Change adresy",
           incoming: "Příchozí",
           outgoing: "Odchozí",
           activation: "Aktivační",
         }
       : {
+          accountTypeStandard: "Standard account",
+          accountTypeInheritance: "Inheritance account",
+          active: "Active",
+          activated: "Activated",
+          awaitingActivation: "Awaiting activation",
+          activationDone: (movedAmount: number, txid: string) =>
+            `Activation complete. Moved ${movedAmount.toLocaleString("en-US")} sats to inheritance account. TXID: ${txid.slice(0, 12)}…`,
+          activationFailed: "Activation failed",
+          accountCopied: "Inheritance account data copied.",
+          copyAccountFailed: "Failed to copy account",
+          renamePrompt: "New account name:",
+          renameFailed: "Failed to rename account",
+          deleteConfirm: (name: string) =>
+            `Do you really want to delete account "${name}"?`,
+          deleteFailed: "Failed to delete account",
+          noData: "No data.",
+          hasBalance: "Has balance",
+          noBalance: "No balance",
+          totalSent: "Total sent",
+          remaining: "Remaining",
+          back: "Back",
+          refresh: "Refresh",
+          receiveFunds: "Receive funds",
+          send: "Send",
+          activating: "Activating...",
+          activate: "🌱 Activate",
+          activateTitle:
+            "Move funds from user+server multisig into inheritance account",
+          sendUnavailable: "Sending is not available yet",
+          receiveClosed:
+            "Receive is closed after activation. New funds cannot be added.",
+          awaitingActivationWithBalance: (balance: number) =>
+            `Awaiting activation: ${balance.toLocaleString("en-US")} sats`,
+          whoCanSpend: "Who can spend funds",
+          frozen: "Frozen",
+          waitingForActivation: "Waiting for account activation",
+          activatedState: "Activated",
+          noOneCanSpend: "No one can spend",
+          availableTogether: "Available together",
+          userAndHeirTogether: "User + heir together",
+          availableForYou: "Available for you",
+          youCanSpendAlone: "You can spend alone",
+          availableForOwner: "Available for owner",
+          availableForHeir: "Available for heir",
+          ownerCanSpendAlone: "Owner can spend alone",
+          heirCanSpendAlone: "Heir can spend alone",
+          manageAccount: "Account management",
+          renaming: "Renaming...",
+          renameAccount: "Rename account",
+          copying: "Copying...",
+          copyAccount: "Copy account",
+          deleting: "Deleting...",
+          deleteAccount: "Delete account",
+          accountInfo: "Account information",
+          loadingDetails: "Loading details...",
+          derivationPath: "Derivation path",
+          myRole: "My role",
+          user: "User",
+          heir: "Heir",
+          userFingerprint: "User fingerprint",
+          heirFingerprint: "Heir fingerprint",
+          userXpub: "User tpub",
+          heirXpub: "Heir tpub",
+          txHistory: "Transaction history",
+          noTransactions: "No transactions yet.",
+          openOnMempool: "Open transaction on mempool.space",
+          addressAudit: "Address audit (first 10)",
+          loadingAddresses: "Loading addresses...",
+          receiveAddresses: "Receive addresses",
+          changeAddresses: "Change addresses",
           incoming: "Incoming",
           outgoing: "Outgoing",
           activation: "Activation",
@@ -277,6 +465,7 @@ export function AccountDetailPage({
           inheritanceDetails.localRole,
           account.inheritanceStatus?.blocksSinceFunding || 0,
           inheritanceDetails.spendingConditions,
+          language,
         )
       : null;
 
@@ -294,7 +483,9 @@ export function AccountDetailPage({
     isInheritance && !isActivatedInheritance && pendingActivationBalance > 0;
   const hasActionButtons = isStandard || showActivateActionOnly || showOnlySend;
   const accountTypeLabel =
-    account.type === "standard" ? "Standardní účet" : "Dědický účet";
+    account.type === "standard"
+      ? labels.accountTypeStandard
+      : labels.accountTypeInheritance;
   const currentInheritanceStage =
     isInheritance && inheritanceDetails
       ? getCurrentInheritanceSpendStage(
@@ -306,23 +497,24 @@ export function AccountDetailPage({
       : null;
   const counterpartyLabel =
     inheritanceDetails?.localRole === "heir"
-      ? "Dostupné pro majitele"
-      : "Dostupné pro dědice";
+      ? labels.availableForOwner
+      : labels.availableForHeir;
   const counterpartySubtitle =
     inheritanceDetails?.localRole === "heir"
-      ? "Samostatně může utrácet majitel účtu"
-      : "Samostatně může utrácet dědic";
+      ? labels.ownerCanSpendAlone
+      : labels.heirCanSpendAlone;
   const inheritancePillLabel =
     isInheritance && inheritanceDetails && currentInheritanceStage
       ? getInheritanceStageLabel(
           currentInheritanceStage,
           inheritanceDetails.localRole,
+          language,
         )
       : isInheritance
         ? isActivatedInheritance
-          ? "Aktivováno"
-          : "Čeká na aktivaci"
-        : "Aktivní";
+          ? labels.activated
+          : labels.awaitingActivation
+        : labels.active;
 
   const handleActivate = async () => {
     if (!isInheritance) {
@@ -340,13 +532,13 @@ export function AccountDetailPage({
         ACTIVATION_FEE_RATE,
       );
       setActivationMessage(
-        `Aktivace hotová. Přesunuto ${result.movedAmount.toLocaleString("cs-CZ")} sats na dědický účet. TXID: ${result.txid.slice(0, 12)}…`,
+        labels.activationDone(result.movedAmount, result.txid),
       );
       await onRefresh();
       await loadDetails();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Aktivace selhala";
+        error instanceof Error ? error.message : labels.activationFailed;
       setActivationError(message);
     } finally {
       setIsActivating(false);
@@ -365,12 +557,10 @@ export function AccountDetailPage({
     try {
       const share = await exportInheritanceAccountShare(mnemonic, account);
       await navigator.clipboard.writeText(share);
-      setCopyAccountMessage("Údaje dědického účtu byly zkopírovány.");
+      setCopyAccountMessage(labels.accountCopied);
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Účet se nepodařilo zkopírovat";
+        error instanceof Error ? error.message : labels.copyAccountFailed;
       setCopyAccountError(message);
     } finally {
       setIsCopyingAccount(false);
@@ -378,7 +568,7 @@ export function AccountDetailPage({
   };
 
   const handleRenameAccount = async () => {
-    const nextName = window.prompt("Nový název účtu:", account.name);
+    const nextName = window.prompt(labels.renamePrompt, account.name);
     if (nextName === null) {
       return;
     }
@@ -394,9 +584,7 @@ export function AccountDetailPage({
       await loadDetails();
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Účet se nepodařilo přejmenovat";
+        error instanceof Error ? error.message : labels.renameFailed;
       setCopyAccountError(message);
     } finally {
       setIsRenaming(false);
@@ -404,9 +592,7 @@ export function AccountDetailPage({
   };
 
   const handleDeleteAccount = async () => {
-    const confirmed = window.confirm(
-      `Opravdu chcete smazat účet "${account.name}"?`,
-    );
+    const confirmed = window.confirm(labels.deleteConfirm(account.name));
     if (!confirmed) {
       return;
     }
@@ -421,7 +607,7 @@ export function AccountDetailPage({
       await onDelete(account);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Účet se nepodařilo smazat";
+        error instanceof Error ? error.message : labels.deleteFailed;
       setCopyAccountError(message);
       setIsDeleting(false);
     }
@@ -433,22 +619,26 @@ export function AccountDetailPage({
   ) => (
     <div className="address-audit-block">
       <h4>{title}</h4>
-      {addresses.length === 0 && <div className="detail-loading">Bez dat.</div>}
+      {addresses.length === 0 && (
+        <div className="detail-loading">{labels.noData}</div>
+      )}
       {addresses.map((item) => (
         <div key={`${title}-${item.index}`} className="address-audit-item">
           <div className="address-audit-head">
             <span>#{item.index}</span>
             <span className={`audit-badge ${item.hasUnspent ? "yes" : "no"}`}>
-              {item.hasUnspent ? "Má zůstatek" : "Bez zůstatku"}
+              {item.hasUnspent ? labels.hasBalance : labels.noBalance}
             </span>
           </div>
           <div className="mono wrap address-audit-address">{item.address}</div>
           <div className="address-audit-stats">
             <span>
-              Posláno celkem: {item.totalReceived.toLocaleString("cs-CZ")} sats
+              {labels.totalSent}: {item.totalReceived.toLocaleString(locale)}{" "}
+              sats
             </span>
             <span>
-              Zbývá: {item.currentBalance.toLocaleString("cs-CZ")} sats
+              {labels.remaining}: {item.currentBalance.toLocaleString(locale)}{" "}
+              sats
             </span>
           </div>
         </div>
@@ -461,17 +651,17 @@ export function AccountDetailPage({
       <div className="account-detail-header">
         <div className="detail-header-actions">
           <button className="back-btn" onClick={onBack}>
-            ← Zpět
+            ← {labels.back}
           </button>
           <button
             className="detail-outline-btn"
-            title="Obnovit"
+            title={labels.refresh}
             onClick={async () => {
               await onRefresh();
               await loadDetails();
             }}
           >
-            ↻ Obnovit
+            ↻ {labels.refresh}
           </button>
         </div>
       </div>
@@ -487,7 +677,7 @@ export function AccountDetailPage({
           <span className="detail-pill">{inheritancePillLabel}</span>
         </div>
         <div className="detail-account-balance">
-          {account.balance.toLocaleString("cs-CZ")} sats
+          {account.balance.toLocaleString(locale)} sats
         </div>
       </div>
 
@@ -500,7 +690,7 @@ export function AccountDetailPage({
               className="detail-action-btn receive"
               onClick={() => onReceive(account)}
             >
-              Přijmout prostředky
+              {labels.receiveFunds}
             </button>
           )}
 
@@ -509,7 +699,7 @@ export function AccountDetailPage({
               className="detail-action-btn send"
               onClick={() => onSend(account)}
             >
-              Odeslat
+              {labels.send}
             </button>
           )}
 
@@ -518,9 +708,9 @@ export function AccountDetailPage({
               className="detail-action-btn activate"
               disabled={isActivating}
               onClick={handleActivate}
-              title="Přesunout prostředky z uživatel+server multisigu do dědického účtu"
+              title={labels.activateTitle}
             >
-              {isActivating ? "Aktivace..." : "🌱 Aktivovat"}
+              {isActivating ? labels.activating : labels.activate}
             </button>
           )}
 
@@ -529,11 +719,9 @@ export function AccountDetailPage({
               className="detail-action-btn send"
               onClick={() => onSend(account)}
               disabled={inheritanceSendHint?.disabled ?? true}
-              title={
-                inheritanceSendHint?.reason || "Odeslání zatím není dostupné"
-              }
+              title={inheritanceSendHint?.reason || labels.sendUnavailable}
             >
-              Odeslat
+              {labels.send}
             </button>
           )}
         </div>
@@ -546,28 +734,28 @@ export function AccountDetailPage({
         )}
 
       {account.type === "inheritance" && isActivatedInheritance && (
-        <div className="detail-send-hint">
-          Receive je po aktivaci uzavřený. Nové prostředky už nelze přidávat.
-        </div>
+        <div className="detail-send-hint">{labels.receiveClosed}</div>
       )}
 
       {account.type === "inheritance" && showActivateActionOnly && (
         <div className="detail-send-hint">
-          {`Čeká na aktivaci: ${pendingActivationBalance.toLocaleString("cs-CZ")} sats`}
+          {labels.awaitingActivationWithBalance(pendingActivationBalance)}
         </div>
       )}
 
       {account.type === "inheritance" && inheritanceDetails && (
         <div className="detail-info-card inheritance-visualization-card">
-          <h3>Kdo může utrácet prostředky</h3>
+          <h3>{labels.whoCanSpend}</h3>
           <div className="inheritance-visualization-list">
             <div
               className={`inheritance-visualization-item ${currentInheritanceStage === "awaitingActivation" ? "active" : ""}`}
             >
               <span className="state-icon">🧊</span>
               <div className="state-main">
-                <div className="state-title">Zmrazeno</div>
-                <div className="state-subtitle">Čeká na aktivaci účtu</div>
+                <div className="state-title">{labels.frozen}</div>
+                <div className="state-subtitle">
+                  {labels.waitingForActivation}
+                </div>
               </div>
             </div>
 
@@ -576,8 +764,8 @@ export function AccountDetailPage({
             >
               <span className="state-icon">⏳</span>
               <div className="state-main">
-                <div className="state-title">Aktivováno</div>
-                <div className="state-subtitle">Nikdo nemůže utrácet</div>
+                <div className="state-title">{labels.activatedState}</div>
+                <div className="state-subtitle">{labels.noOneCanSpend}</div>
               </div>
             </div>
 
@@ -586,9 +774,9 @@ export function AccountDetailPage({
             >
               <span className="state-icon">🤝</span>
               <div className="state-main">
-                <div className="state-title">Dostupné společně</div>
+                <div className="state-title">{labels.availableTogether}</div>
                 <div className="state-subtitle">
-                  Uživatel + dědic společně
+                  {labels.userAndHeirTogether}
                   {getStageEtaSuffix(
                     Math.max(
                       0,
@@ -597,6 +785,7 @@ export function AccountDetailPage({
                     ),
                     "multisig",
                     currentInheritanceStage,
+                    language,
                   )}
                 </div>
               </div>
@@ -607,9 +796,9 @@ export function AccountDetailPage({
             >
               <span className="state-icon">🧑</span>
               <div className="state-main">
-                <div className="state-title">Dostupné pro vás</div>
+                <div className="state-title">{labels.availableForYou}</div>
                 <div className="state-subtitle">
-                  Samostatně můžete utrácet
+                  {labels.youCanSpendAlone}
                   {getStageEtaSuffix(
                     Math.max(
                       0,
@@ -621,6 +810,7 @@ export function AccountDetailPage({
                     ),
                     "localOnly",
                     currentInheritanceStage,
+                    language,
                   )}
                 </div>
               </div>
@@ -645,6 +835,7 @@ export function AccountDetailPage({
                     ),
                     "counterpartyOnly",
                     currentInheritanceStage,
+                    language,
                   )}
                 </div>
               </div>
@@ -670,7 +861,7 @@ export function AccountDetailPage({
       )}
 
       <div className="detail-info-card detail-manage-card">
-        <h3>Správa účtu</h3>
+        <h3>{labels.manageAccount}</h3>
         <div className="detail-mini-actions">
           <button
             type="button"
@@ -678,7 +869,7 @@ export function AccountDetailPage({
             disabled={isRenaming || isDeleting}
             onClick={handleRenameAccount}
           >
-            {isRenaming ? "Přejmenovávám..." : "Přejmenovat účet"}
+            {isRenaming ? labels.renaming : labels.renameAccount}
           </button>
 
           {account.type === "inheritance" && (
@@ -688,7 +879,7 @@ export function AccountDetailPage({
               disabled={isCopyingAccount}
               onClick={handleCopyInheritanceAccount}
             >
-              {isCopyingAccount ? "Kopíruji..." : "Kopírovat účet"}
+              {isCopyingAccount ? labels.copying : labels.copyAccount}
             </button>
           )}
 
@@ -699,7 +890,7 @@ export function AccountDetailPage({
               disabled={isDeleting || isRenaming}
               onClick={handleDeleteAccount}
             >
-              {isDeleting ? "Mažu..." : "Smazat účet"}
+              {isDeleting ? labels.deleting : labels.deleteAccount}
             </button>
           )}
         </div>
@@ -712,11 +903,11 @@ export function AccountDetailPage({
             className="detail-collapse-btn"
             onClick={() => setIsInfoExpanded((value) => !value)}
           >
-            <h3>Informace o účtu</h3>
+            <h3>{labels.accountInfo}</h3>
             <span>{isInfoExpanded ? "−" : "+"}</span>
           </button>
           {isInfoExpanded && isLoading && (
-            <div className="detail-loading">Načítání detailů...</div>
+            <div className="detail-loading">{labels.loadingDetails}</div>
           )}
 
           {isInfoExpanded &&
@@ -731,7 +922,7 @@ export function AccountDetailPage({
                   </span>
                 </div>
                 <div className="detail-row vertical">
-                  <span>Derivační cesta</span>
+                  <span>{labels.derivationPath}</span>
                   <span className="mono">{standardDetails.derivationPath}</span>
                 </div>
                 <div className="detail-row vertical">
@@ -749,39 +940,39 @@ export function AccountDetailPage({
             inheritanceDetails && (
               <>
                 <div className="detail-row">
-                  <span>Moje role</span>
+                  <span>{labels.myRole}</span>
                   <span>
                     {inheritanceDetails.localRole === "user"
-                      ? "Uživatel"
-                      : "Dědic"}
+                      ? labels.user
+                      : labels.heir}
                   </span>
                 </div>
                 <div className="detail-row vertical">
-                  <span>Derivační cesta</span>
+                  <span>{labels.derivationPath}</span>
                   <span className="mono">
                     {inheritanceDetails.derivationPath}
                   </span>
                 </div>
                 <div className="detail-row vertical">
-                  <span>Fingerprint uživatele</span>
+                  <span>{labels.userFingerprint}</span>
                   <span className="mono">
                     {inheritanceDetails.userFingerprint}
                   </span>
                 </div>
                 <div className="detail-row vertical">
-                  <span>Fingerprint dědice</span>
+                  <span>{labels.heirFingerprint}</span>
                   <span className="mono">
                     {inheritanceDetails.heirFingerprint}
                   </span>
                 </div>
                 <div className="detail-row vertical">
-                  <span>tpub uživatele</span>
+                  <span>{labels.userXpub}</span>
                   <span className="mono wrap">
                     {inheritanceDetails.userXpub}
                   </span>
                 </div>
                 <div className="detail-row vertical">
-                  <span>tpub dědice</span>
+                  <span>{labels.heirXpub}</span>
                   <span className="mono wrap">
                     {inheritanceDetails.heirXpub}
                   </span>
@@ -796,12 +987,12 @@ export function AccountDetailPage({
             className="detail-collapse-btn"
             onClick={() => setIsTxHistoryExpanded((value) => !value)}
           >
-            <h3>Transakční historie</h3>
+            <h3>{labels.txHistory}</h3>
             <span>{isTxHistoryExpanded ? "−" : "+"}</span>
           </button>
 
           {isTxHistoryExpanded && !isLoading && transactions.length === 0 && (
-            <div className="detail-loading">Zatím bez transakcí.</div>
+            <div className="detail-loading">{labels.noTransactions}</div>
           )}
 
           {isTxHistoryExpanded &&
@@ -812,10 +1003,10 @@ export function AccountDetailPage({
                     className={`tx-type ${tx.type === "incoming" ? "in" : tx.type === "activation" ? "activation" : "out"}`}
                   >
                     {tx.type === "incoming"
-                      ? txLabels.incoming
+                      ? labels.incoming
                       : tx.type === "activation"
-                        ? txLabels.activation
-                        : txLabels.outgoing}
+                        ? labels.activation
+                        : labels.outgoing}
                   </span>
                   <span className="tx-amount">
                     {tx.amount.toLocaleString(locale)} sats
@@ -827,7 +1018,7 @@ export function AccountDetailPage({
                     href={`${MEMPOOL_TX_BASE_URL}/${tx.txid}`}
                     target="_blank"
                     rel="noreferrer"
-                    title="Otevřít transakci na mempool.space"
+                    title={labels.openOnMempool}
                   >
                     {tx.txid}
                   </a>
@@ -845,16 +1036,19 @@ export function AccountDetailPage({
             className="detail-collapse-btn"
             onClick={() => setIsAddressAuditExpanded((value) => !value)}
           >
-            <h3>Kontrola adres (prvních 10)</h3>
+            <h3>{labels.addressAudit}</h3>
             <span>{isAddressAuditExpanded ? "−" : "+"}</span>
           </button>
           {isAddressAuditExpanded && isLoading && (
-            <div className="detail-loading">Načítání adres...</div>
+            <div className="detail-loading">{labels.loadingAddresses}</div>
           )}
           {isAddressAuditExpanded && !isLoading && (
             <div className="address-audit-grid">
-              {renderAddressAuditList("Receive adresy", receiveAddresses)}
-              {renderAddressAuditList("Change adresy", changeAddresses)}
+              {renderAddressAuditList(
+                labels.receiveAddresses,
+                receiveAddresses,
+              )}
+              {renderAddressAuditList(labels.changeAddresses, changeAddresses)}
             </div>
           )}
         </div>

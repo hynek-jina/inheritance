@@ -1,9 +1,11 @@
 import { type FormEvent, useState } from "react";
+import type { AppLanguage } from "../constants";
 import type { Contact } from "../types";
 import { loadContacts, saveContacts } from "../utils/storage";
 import "./Contacts.css";
 
 interface ContactsProps {
+  language: AppLanguage;
   onBack: () => void;
 }
 
@@ -16,7 +18,39 @@ function shortenTechnicalValue(value: string): string {
   return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
 }
 
-export function Contacts({ onBack }: ContactsProps) {
+export function Contacts({ language, onBack }: ContactsProps) {
+  const labels =
+    language === "cs"
+      ? {
+          confirmDelete: (name: string) =>
+            `Opravdu chcete smazat kontakt ${name}?`,
+          back: "Zpět",
+          title: "Kontakty",
+          editContact: "Upravit kontakt",
+          addContact: "Přidat kontakt",
+          name: "Jméno",
+          saveChanges: "Uložit změny",
+          cancel: "Zrušit",
+          savedContacts: "Uložené kontakty",
+          empty: "Zatím nemáte uložené žádné kontakty.",
+          edit: "Upravit",
+          delete: "Smazat",
+        }
+      : {
+          confirmDelete: (name: string) =>
+            `Do you really want to delete contact ${name}?`,
+          back: "Back",
+          title: "Contacts",
+          editContact: "Edit contact",
+          addContact: "Add contact",
+          name: "Name",
+          saveChanges: "Save changes",
+          cancel: "Cancel",
+          savedContacts: "Saved contacts",
+          empty: "You don't have any saved contacts yet.",
+          edit: "Edit",
+          delete: "Delete",
+        };
   const [contacts, setContacts] = useState<Contact[]>(() => loadContacts());
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -71,9 +105,7 @@ export function Contacts({ onBack }: ContactsProps) {
   };
 
   const handleDeleteContact = (contact: Contact) => {
-    const isConfirmed = window.confirm(
-      `Opravdu chcete smazat kontakt ${contact.name}?`,
-    );
+    const isConfirmed = window.confirm(labels.confirmDelete(contact.name));
 
     if (!isConfirmed) {
       return;
@@ -94,18 +126,18 @@ export function Contacts({ onBack }: ContactsProps) {
     <div className="contacts-page">
       <div className="contacts-header">
         <button className="back-btn" onClick={onBack}>
-          ← Zpět
+          ← {labels.back}
         </button>
       </div>
 
       <div className="contacts-content">
-        <h2>Kontakty</h2>
+        <h2>{labels.title}</h2>
 
         <form className="contact-form" onSubmit={handleSubmitContact}>
-          <h3>{editingContactId ? "Upravit kontakt" : "Přidat kontakt"}</h3>
+          <h3>{editingContactId ? labels.editContact : labels.addContact}</h3>
 
           <label className="contact-input-label" htmlFor="contact-name">
-            Jméno
+            {labels.name}
           </label>
           <input
             id="contact-name"
@@ -139,7 +171,7 @@ export function Contacts({ onBack }: ContactsProps) {
 
           <div className="contact-form-actions">
             <button type="submit" className="add-contact-btn">
-              {editingContactId ? "Uložit změny" : "Přidat kontakt"}
+              {editingContactId ? labels.saveChanges : labels.addContact}
             </button>
             {editingContactId && (
               <button
@@ -147,18 +179,16 @@ export function Contacts({ onBack }: ContactsProps) {
                 className="secondary-contact-btn"
                 onClick={resetForm}
               >
-                Zrušit
+                {labels.cancel}
               </button>
             )}
           </div>
         </form>
 
         <div className="saved-contacts">
-          <h3>Uložené kontakty</h3>
+          <h3>{labels.savedContacts}</h3>
           {contacts.length === 0 ? (
-            <div className="contact-empty">
-              Zatím nemáte uložené žádné kontakty.
-            </div>
+            <div className="contact-empty">{labels.empty}</div>
           ) : (
             contacts.map((contact) => (
               <div className="contact-card" key={contact.id}>
@@ -170,14 +200,14 @@ export function Contacts({ onBack }: ContactsProps) {
                       className="contact-action-btn"
                       onClick={() => handleEditContact(contact)}
                     >
-                      Upravit
+                      {labels.edit}
                     </button>
                     <button
                       type="button"
                       className="contact-action-btn danger"
                       onClick={() => handleDeleteContact(contact)}
                     >
-                      Smazat
+                      {labels.delete}
                     </button>
                   </div>
                 </div>

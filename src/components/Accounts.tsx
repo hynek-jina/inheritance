@@ -152,6 +152,13 @@ export function Accounts({
           addInheritance: "Přidat dědický účet",
           pastePrompt: "Vložte sdílená data dědického účtu:",
           pasteError: "Účet se nepodařilo vložit",
+          inheritanceAvailableForBoth: "Dostupné pro oba",
+          inheritanceAvailableForYou: "Dostupné pro vás",
+          inheritanceAvailableForOwner: "Dostupné pro majitele",
+          inheritanceAvailableForHeir: "Dostupné pro dědice",
+          inheritanceShared: "Dostupné společně",
+          inheritanceActivated: "Aktivováno",
+          inheritanceAwaitingActivation: "Čeká na aktivaci",
         }
       : {
           loadingAccounts: "Loading accounts...",
@@ -163,6 +170,13 @@ export function Accounts({
           addInheritance: "Add inheritance account",
           pastePrompt: "Paste shared inheritance account data:",
           pasteError: "Failed to paste account",
+          inheritanceAvailableForBoth: "Available for both",
+          inheritanceAvailableForYou: "Available for you",
+          inheritanceAvailableForOwner: "Available for owner",
+          inheritanceAvailableForHeir: "Available for heir",
+          inheritanceShared: "Available together",
+          inheritanceActivated: "Activated",
+          inheritanceAwaitingActivation: "Awaiting activation",
         };
   const primaryStandardAccountId = accounts.find(
     (item) => item.type === "standard",
@@ -242,14 +256,14 @@ export function Accounts({
         return {
           cardClass: "spendable",
           progress: 4,
-          statusText: "Dostupné pro oba",
+          statusText: ui.inheritanceAvailableForBoth,
         };
       }
 
       return {
         cardClass: "spendable",
         progress: canOwnerSpend || canHeirSpend ? 3 : 2,
-        statusText: "Dostupné pro vás",
+        statusText: ui.inheritanceAvailableForYou,
       };
     }
 
@@ -258,7 +272,9 @@ export function Accounts({
         cardClass: role === "user" ? "active" : "spendable",
         progress: role === "user" ? 2 : 3,
         statusText:
-          role === "heir" ? "Dostupné pro majitele" : "Dostupné pro dědice",
+          role === "heir"
+            ? ui.inheritanceAvailableForOwner
+            : ui.inheritanceAvailableForHeir,
       };
     }
 
@@ -267,15 +283,15 @@ export function Accounts({
         cardClass: "active",
         progress: requiresMultisig ? 2 : 1,
         statusText: account.inheritanceStatus?.requiresMultisig
-          ? "Dostupné společně"
-          : "Aktivováno",
+          ? ui.inheritanceShared
+          : ui.inheritanceActivated,
       };
     }
 
     return {
       cardClass: "frozen",
       progress: 0,
-      statusText: "Čeká na aktivaci",
+      statusText: ui.inheritanceAwaitingActivation,
     };
   };
 
@@ -305,7 +321,7 @@ export function Accounts({
       />
 
       {view === "contacts" ? (
-        <Contacts onBack={() => navigate("/")} />
+        <Contacts language={language} onBack={() => navigate("/")} />
       ) : detailAccount ? (
         <AccountDetailPage
           account={detailAccount}
@@ -417,6 +433,7 @@ export function Accounts({
         <ReceiveModal
           account={modalAccount}
           mnemonic={mnemonic}
+          language={language}
           onClose={() => setShowReceive(false)}
         />
       )}
@@ -426,6 +443,7 @@ export function Accounts({
           account={modalAccount}
           accounts={accounts}
           mnemonic={mnemonic}
+          language={language}
           onClose={() => setShowSend(false)}
           onSent={handleRefresh}
         />
@@ -434,6 +452,7 @@ export function Accounts({
       {showInheritance && (
         <InheritanceModal
           mnemonic={mnemonic}
+          language={language}
           onClose={() => {
             setShowInheritance(false);
             setAccounts(loadAccounts());

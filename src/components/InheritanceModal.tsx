@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { AppLanguage } from "../constants";
 import { DEFAULT_INHERITANCE_CONDITIONS } from "../constants";
 import { createInheritanceAccount } from "../services/wallet";
 import type { Contact, SpendingConditions } from "../types";
@@ -7,12 +8,70 @@ import "./Modal.css";
 
 interface InheritanceModalProps {
   mnemonic: string;
+  language: AppLanguage;
   onClose: () => void;
 }
 
-export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
+export function InheritanceModal({
+  mnemonic,
+  language,
+  onClose,
+}: InheritanceModalProps) {
   const [contacts] = useState<Contact[]>(() => loadContacts());
-  const [accountName, setAccountName] = useState("Dědický účet");
+  const labels =
+    language === "cs"
+      ? {
+          defaultName: "Dědický účet",
+          enterName: "Zadejte název účtu",
+          selectContact: "Vyberte kontakt protistrany",
+          invalidFp:
+            "Vybraný kontakt má neplatný fingerprint (musí mít 8 hex znaků)",
+          emptyXpub: "Vybraný kontakt má prázdný xpub/tpub",
+          invalidBlocks: "Počty bloků musí být nezáporná celá čísla",
+          invalidOrder:
+            "Společné utrácení musí začínat nejpozději ve stejném bloku jako samostatné utrácení",
+          heirFallback: "Dědic",
+          createError: "Chyba při vytváření dědického účtu",
+          title: "Přidat dědický účet",
+          description:
+            "Vyberte kontakt protistrany a nastavte od kolika bloků bude možné společné a samostatné utrácení.",
+          accountName: "Název účtu",
+          heirContact: "Kontakt dědice",
+          selectContactOption: "Vyberte kontakt",
+          noContacts: "Nemáte uložené kontakty. Přidejte je v sekci Kontakty.",
+          bothSpendAfter: "Od kolika bloků může utrácet uživatel + dědic",
+          userSpendAfter: "Od kolika bloků stačí uživatel",
+          heirSpendAfter: "Od kolika bloků stačí dědic",
+          creating: "Vytváření...",
+          createShared: "Vytvořit společný účet",
+        }
+      : {
+          defaultName: "Inheritance account",
+          enterName: "Enter account name",
+          selectContact: "Select counterparty contact",
+          invalidFp:
+            "Selected contact has invalid fingerprint (must be 8 hex characters)",
+          emptyXpub: "Selected contact has an empty xpub/tpub",
+          invalidBlocks: "Block counts must be non-negative integers",
+          invalidOrder:
+            "Shared spending must start no later than single-party spending",
+          heirFallback: "Heir",
+          createError: "Error while creating inheritance account",
+          title: "Add inheritance account",
+          description:
+            "Select counterparty contact and set from which block heights shared and single-party spending is allowed.",
+          accountName: "Account name",
+          heirContact: "Heir contact",
+          selectContactOption: "Select contact",
+          noContacts:
+            "You have no saved contacts. Add them in Contacts section.",
+          bothSpendAfter: "From which block can user + heir spend together",
+          userSpendAfter: "From which block user alone is enough",
+          heirSpendAfter: "From which block heir alone is enough",
+          creating: "Creating...",
+          createShared: "Create shared account",
+        };
+  const [accountName, setAccountName] = useState(labels.defaultName);
   const [selectedContactId, setSelectedContactId] = useState("");
   const [multisigAfterBlocks, setMultisigAfterBlocks] = useState(
     DEFAULT_INHERITANCE_CONDITIONS.multisigAfterBlocks,
@@ -34,12 +93,12 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
     setError("");
 
     if (!accountName.trim()) {
-      setError("Zadejte název účtu");
+      setError(labels.enterName);
       return;
     }
 
     if (!selectedContact) {
-      setError("Vyberte kontakt protistrany");
+      setError(labels.selectContact);
       return;
     }
 
@@ -49,14 +108,12 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
     const normalizedXpub = selectedContact.xpub.replace(/\s+/g, "").trim();
 
     if (!/^[0-9a-fA-F]{8}$/.test(normalizedFingerprint)) {
-      setError(
-        "Vybraný kontakt má neplatný fingerprint (musí mít 8 hex znaků)",
-      );
+      setError(labels.invalidFp);
       return;
     }
 
     if (!normalizedXpub) {
-      setError("Vybraný kontakt má prázdný xpub/tpub");
+      setError(labels.emptyXpub);
       return;
     }
 
@@ -72,7 +129,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
       Number.isNaN(parsedUserOnlyAfter) ||
       Number.isNaN(parsedHeirOnlyAfter)
     ) {
-      setError("Počty bloků musí být nezáporná celá čísla");
+      setError(labels.invalidBlocks);
       return;
     }
 
@@ -80,9 +137,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
       parsedMultisigAfter > parsedUserOnlyAfter ||
       parsedMultisigAfter > parsedHeirOnlyAfter
     ) {
-      setError(
-        "Společné utrácení musí začínat nejpozději ve stejném bloku jako samostatné utrácení",
-      );
+      setError(labels.invalidOrder);
       return;
     }
 
@@ -100,7 +155,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
         accountName.trim(),
         {
           id: `heir-${Date.now()}`,
-          name: selectedContact.name || "Dědic",
+          name: selectedContact.name || labels.heirFallback,
           fingerprint: normalizedFingerprint,
           xpub: normalizedXpub,
         },
@@ -110,9 +165,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
       onClose();
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Chyba při vytváření dědického účtu";
+        error instanceof Error ? error.message : labels.createError;
       setError(message);
     } finally {
       setIsCreating(false);
@@ -126,20 +179,17 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <h2>Přidat dědický účet</h2>
+          <h2>{labels.title}</h2>
           <button className="modal-close" onClick={onClose}>
             ×
           </button>
         </div>
 
         <div className="modal-body">
-          <p className="step-description">
-            Vyberte kontakt protistrany a nastavte od kolika bloků bude možné
-            společné a samostatné utrácení.
-          </p>
+          <p className="step-description">{labels.description}</p>
 
           <div className="form-group">
-            <label>Název účtu</label>
+            <label>{labels.accountName}</label>
             <input
               type="text"
               value={accountName}
@@ -149,13 +199,13 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
           </div>
 
           <div className="form-group">
-            <label>Kontakt dědice</label>
+            <label>{labels.heirContact}</label>
             <select
               value={selectedContactId}
               onChange={(e) => setSelectedContactId(e.target.value)}
               className="form-input"
             >
-              <option value="">Vyberte kontakt</option>
+              <option value="">{labels.selectContactOption}</option>
               {contacts.map((contact) => (
                 <option key={contact.id} value={contact.id}>
                   {contact.name}
@@ -169,14 +219,12 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
               </div>
             )}
             {!selectedContact && contacts.length === 0 && (
-              <div className="input-hint">
-                Nemáte uložené kontakty. Přidejte je v sekci Kontakty.
-              </div>
+              <div className="input-hint">{labels.noContacts}</div>
             )}
           </div>
 
           <div className="form-group">
-            <label>Od kolika bloků může utrácet uživatel + dědic</label>
+            <label>{labels.bothSpendAfter}</label>
             <input
               type="number"
               min={0}
@@ -187,7 +235,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
           </div>
 
           <div className="form-group">
-            <label>Od kolika bloků stačí uživatel</label>
+            <label>{labels.userSpendAfter}</label>
             <input
               type="number"
               min={0}
@@ -198,7 +246,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
           </div>
 
           <div className="form-group">
-            <label>Od kolika bloků stačí dědic</label>
+            <label>{labels.heirSpendAfter}</label>
             <input
               type="number"
               min={0}
@@ -215,7 +263,7 @@ export function InheritanceModal({ mnemonic, onClose }: InheritanceModalProps) {
             disabled={isCreating || !selectedContactId}
             className="btn-primary btn-full"
           >
-            {isCreating ? "Vytváření..." : "Vytvořit společný účet"}
+            {isCreating ? labels.creating : labels.createShared}
           </button>
         </div>
       </div>
